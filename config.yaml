@@ -1,0 +1,24 @@
+# NucleiAI Configuration
+
+nuclei:
+  binary: nuclei
+  templates_dir: C:/Users/14940/AppData/Roaming/nuclei/nuclei-templates
+  timeout: 300
+  concurrency: 10
+
+ollama:
+  host: http://localhost:11434
+  model: qwen3:8b
+  timeout: 120
+
+server:
+  host: 127.0.0.1
+  port: 8080
+
+scan:
+  output_dir: ./results
+  max_results_per_target: 1000
+
+report:
+  template_dir: ./web/templates
+  output_dir: ./reports
