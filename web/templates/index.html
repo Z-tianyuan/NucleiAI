@@ -8,18 +8,91 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
                background: #0f172a; color: #e2e8f0; min-height: 100vh; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
-        header { text-align: center; padding: 3rem 0 2rem; }
-        header h1 { font-size: 2.5rem; color: #38bdf8; margin-bottom: 0.5rem; }
-        header p { color: #94a3b8; font-size: 1.1rem; }
-        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-                 gap: 1.5rem; margin: 2rem 0; }
-        .card { background: #1e293b; border-radius: 12px; padding: 1.5rem;
-                border: 1px solid #334155; }
-        .card h3 { color: #38bdf8; margin-bottom: 0.75rem; }
-        .card p { color: #94a3b8; line-height: 1.6; }
-        .card .icon { font-size: 2rem; margin-bottom: 0.5rem; }
-        footer { text-align: center; padding: 2rem; color: #475569; }
+        .container { max-width: 960px; margin: 0 auto; padding: 2rem; }
+        header { text-align: center; padding: 2rem 0 1.5rem; }
+        header h1 { font-size: 2.2rem; color: #38bdf8; }
+        header p { color: #94a3b8; margin-top: 0.35rem; }
+
+        .scan-box { background: #1e293b; border: 1px solid #334155;
+                    border-radius: 12px; padding: 1.5rem; margin: 1.5rem 0; }
+        .scan-box h3 { color: #38bdf8; margin-bottom: 1rem; }
+        .scan-form { display: flex; gap: 12px; }
+        .scan-form input { flex: 1; padding: 10px 14px; border-radius: 8px;
+                           border: 1px solid #475569; background: #0f172a;
+                           color: #e2e8f0; font-size: 0.95rem; }
+        .scan-form input:focus { outline: none; border-color: #38bdf8; }
+        .scan-form button { padding: 10px 24px; border-radius: 8px;
+                            border: none; background: #2563eb; color: #fff;
+                            font-size: 0.95rem; font-weight: 600; cursor: pointer; }
+        .scan-form button:hover { background: #1d4ed8; }
+
+        .error { background: #450a0a; border: 1px solid #dc2626; color: #fca5a5;
+                 padding: 10px 14px; border-radius: 8px; margin-top: 1rem; }
+        .ai-warning { background: #422006; border: 1px solid #eab308; color: #fde68a;
+                      padding: 10px 14px; border-radius: 8px; margin-top: 1rem; }
+
+        .result-card { background: #1e293b; border: 1px solid #334155;
+                       border-radius: 12px; margin: 1rem 0; overflow: hidden; }
+        .result-header { display: flex; justify-content: space-between; align-items: center;
+                         padding: 12px 18px; background: #162032; }
+        .result-header .target { font-weight: 600; color: #e2e8f0; }
+        .result-header .meta { color: #94a3b8; font-size: 0.85rem; }
+        .count-badge { background: #2563eb; color: #fff; border-radius: 20px;
+                       padding: 2px 10px; font-size: 0.8rem; margin-left: 8px; }
+
+        table { width: 100%; border-collapse: collapse; }
+        thead { background: #0f172a; }
+        th { text-align: left; padding: 10px 18px; color: #94a3b8;
+             font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        td { padding: 8px 18px; border-top: 1px solid #1e293b; font-size: 0.9rem; }
+        tr:hover td { background: #1a2740; }
+
+        .sev { padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+        .sev-info    { background: #1e40af; color: #93c5fd; }
+        .sev-low     { background: #166534; color: #86efac; }
+        .sev-medium  { background: #854d0e; color: #fde68a; }
+        .sev-high    { background: #991b1b; color: #fca5a5; }
+        .sev-critical{ background: #7f1d1d; color: #fecaca; }
+
+        .empty { text-align: center; color: #64748b; padding: 2rem 0; }
+
+        .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1.5rem 0; }
+        .legend-box { background: #1e293b; border: 1px solid #334155;
+                      border-radius: 10px; padding: 1rem; }
+        .legend-box h4 { color: #38bdf8; margin-bottom: 0.6rem; font-size: 0.9rem; }
+        .legend-item { display: flex; align-items: center; gap: 8px;
+                       padding: 3px 0; font-size: 0.8rem; color: #cbd5e1; }
+        .tag-chip { padding: 1px 8px; border-radius: 10px; font-size: 0.7rem;
+                    font-weight: 600; background: #334155; color: #cbd5e1; }
+
+        .desc-cell { max-width: 280px; color: #94a3b8; font-size: 0.82rem; }
+
+        .ai-badge { padding: 2px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+        .ai-malicious { background: #166534; color: #86efac; }
+        .ai-fp { background: #991b1b; color: #fca5a5; }
+        .ai-tech { background: #1e40af; color: #93c5fd; }
+        .ai-unknown { background: #334155; color: #cbd5e1; }
+        .ai-reason { max-width: 200px; color: #94a3b8; font-size: 0.78rem; }
+        .confidence-bar { width: 60px; height: 6px; background: #334155;
+                          border-radius: 3px; display: inline-block; vertical-align: middle; }
+        .confidence-fill { height: 100%; border-radius: 3px; }
+        .conf-high { background: #22c55e; }
+        .conf-mid { background: #eab308; }
+        .conf-low { background: #ef4444; }
+
+        .section-title { color: #38bdf8; font-size: 0.95rem; font-weight: 600;
+                         padding: 12px 18px; border-top: 1px solid #334155; }
+        .ai-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
+                      padding: 0 18px 1rem; }
+        .ai-summary-box { background: #0f172a; border-radius: 8px; padding: 0.8rem 1rem; }
+        .ai-summary-box.good { border-left: 3px solid #22c55e; }
+        .ai-summary-box.bad { border-left: 3px solid #ef4444; }
+        .ai-summary-box .num { font-size: 1.4rem; font-weight: 700; }
+        .ai-summary-box.good .num { color: #86efac; }
+        .ai-summary-box.bad .num { color: #fca5a5; }
+        .ai-summary-box .sub { color: #94a3b8; font-size: 0.75rem; }
+
+        footer { text-align: center; padding: 2rem; color: #475569; font-size: 0.85rem; }
     </style>
 </head>
 <body>
@@ -29,26 +102,173 @@
             <p>AI增强漏洞管理平台 — 智能扫描 · 误报过滤 · 中文报告</p>
         </header>
 
-        <div class="cards">
-            <div class="card">
-                <div class="icon">🔍</div>
-                <h3>智能扫描</h3>
-                <p>基于 Nuclei 引擎，支持自动指纹识别与模板推荐，覆盖 OWASP Top 10 漏洞类型。</p>
+        <div class="scan-box">
+            <h3>新建扫描任务</h3>
+            <form class="scan-form" method="post" action="/">
+                <input name="target" type="text"
+                       placeholder="输入目标 URL，如 http://127.0.0.1:9999"
+                       value="{{ last_target or '' }}" required>
+                <button type="submit">开始扫描</button>
+            </form>
+            <p style="color:#64748b;font-size:0.78rem;margin-top:8px;">扫描 + AI 分析约 1 分钟，请耐心等待</p>
+        </div>
+
+        <div class="legend">
+            <div class="legend-box">
+                <h4>严重等级说明</h4>
+                <div class="legend-item"><span class="sev sev-info">info</span> 信息提示 — 技术识别，非安全漏洞</div>
+                <div class="legend-item"><span class="sev sev-low">low</span> 低风险 — 可能暴露信息但无直接危害</div>
+                <div class="legend-item"><span class="sev sev-medium">medium</span> 中风险 — 可能导致信息泄露或权限绕过</div>
+                <div class="legend-item"><span class="sev sev-high">high</span> 高风险 — 可能导致数据泄露或被入侵</div>
+                <div class="legend-item"><span class="sev sev-critical">critical</span> 严重 — 可直接导致服务器被完全控制</div>
             </div>
-            <div class="card">
-                <div class="icon">🧠</div>
-                <h3>AI 误报过滤</h3>
-                <p>LLM 驱动的二次研判引擎，对每条扫描结果进行上下文分析，有效降低误报率。</p>
-            </div>
-            <div class="card">
-                <div class="icon">📄</div>
-                <h3>中文报告生成</h3>
-                <p>一键生成符合 GB/T 标准的中文渗透测试报告，包含漏洞详情与修复建议。</p>
+            <div class="legend-box">
+                <h4>标签说明</h4>
+                <div class="legend-item"><span class="tag-chip">tech</span> 技术识别 — 识别目标使用的软件/框架</div>
+                <div class="legend-item"><span class="tag-chip">discovery</span> 信息发现 — 发现暴露的服务或路径</div>
+                <div class="legend-item"><span class="tag-chip">misconfig</span> 配置缺陷 — 检测到不安全配置项</div>
+                <div class="legend-item"><span class="tag-chip">demo</span> 演示模板 — 用于学习/功能验证</div>
+                <div class="legend-item"><span class="tag-chip">dsl</span> DSL 表达式 — 复杂条件组合匹配</div>
             </div>
         </div>
 
+        {% if history|length >= 2 %}
+        <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;
+                    padding:10px 18px;margin:1rem 0;display:flex;align-items:center;gap:12px;">
+            <span style="color:#38bdf8;font-weight:600;font-size:0.85rem;">对比扫描结果</span>
+            <form method="get" action="/compare" style="display:flex;align-items:center;gap:8px;">
+                <select name="i1" style="padding:4px 8px;border-radius:6px;border:1px solid #475569;
+                        background:#0f172a;color:#e2e8f0;font-size:0.8rem;">
+                    {% for s in history %}
+                    <option value="{{ loop.index0 }}">[{{ loop.index0 }}] {{ s.target }} ({{ s.time }})</option>
+                    {% endfor %}
+                </select>
+                <span style="color:#64748b;">vs</span>
+                <select name="i2" style="padding:4px 8px;border-radius:6px;border:1px solid #475569;
+                        background:#0f172a;color:#e2e8f0;font-size:0.8rem;">
+                    {% for s in history %}
+                    <option value="{{ loop.index0 }}" {% if loop.index0 == 1 %}selected{% endif %}>
+                        [{{ loop.index0 }}] {{ s.target }} ({{ s.time }})
+                    </option>
+                    {% endfor %}
+                </select>
+                <button type="submit" style="padding:6px 14px;border-radius:6px;border:none;
+                        background:#2563eb;color:#fff;font-size:0.8rem;font-weight:600;cursor:pointer;">对比</button>
+            </form>
+        </div>
+        {% endif %}
+
+        {% if history %}
+        {% for scan in history %}
+        <div class="result-card">
+            <div class="result-header">
+                <span class="target">{{ scan.target }}</span>
+                <span class="meta">{{ scan.time }}
+                    {% if not scan.error %}
+                    <span class="count-badge">{{ scan.count }} findings</span>
+                    {% endif %}
+                    {% if scan.findings and not scan.error %}
+                    <a href="/report/{{ loop.index0 }}" target="_blank"
+                       style="margin-left:12px;padding:2px 10px;background:#166534;color:#86efac;
+                              border-radius:12px;font-size:0.78rem;text-decoration:none;">📄 查看报告</a>
+                    {% endif %}
+                </span>
+            </div>
+            {% if scan.fingerprint and not scan.error %}
+            <div style="display:flex;gap:16px;padding:10px 18px;background:#0f172a;flex-wrap:wrap;align-items:center;">
+                {% if scan.fingerprint.status_code %}
+                <span style="color:#94a3b8;font-size:0.8rem;">状态码 <b style="color:#e2e8f0;">{{ scan.fingerprint.status_code }}</b></span>
+                {% endif %}
+                {% if scan.fingerprint.web_server %}
+                <span style="color:#94a3b8;font-size:0.8rem;">服务器 <b style="color:#38bdf8;">{{ scan.fingerprint.web_server }}</b></span>
+                {% endif %}
+                {% if scan.fingerprint.title %}
+                <span style="color:#94a3b8;font-size:0.8rem;">标题 <b style="color:#e2e8f0;">{{ scan.fingerprint.title }}</b></span>
+                {% endif %}
+                {% if scan.fingerprint.technologies %}
+                <span style="color:#94a3b8;font-size:0.8rem;">技术栈</span>
+                {% for t in scan.fingerprint.technologies %}
+                <span style="padding:1px 8px;background:#1e40af;color:#93c5fd;border-radius:10px;font-size:0.7rem;">{{ t }}</span>
+                {% endfor %}
+                {% endif %}
+                {% if scan.smart_templates %}
+                <span style="color:#94a3b8;font-size:0.8rem;margin-left:8px;">| 智能匹配 <b style="color:#22c55e;">{{ scan.smart_templates|length }} 模板</b></span>
+                {% endif %}
+            </div>
+            {% endif %}
+            {% if scan.error %}
+            <div class="error">{{ scan.error }}</div>
+            {% elif scan.findings %}
+            {% if scan.ai_error %}
+            <div class="ai-warning">&#9888; {{ scan.ai_error }} — 以下为原始扫描结果</div>
+            {% endif %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>检测名称</th>
+                        <th>严重度</th>
+                        <th>说明</th>
+                        <th>标签</th>
+                        {% if scan.ai_enabled %}
+                        <th>AI判定</th>
+                        <th>置信度</th>
+                        <th>AI理由</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                {% for f in scan.findings %}
+                    <tr>
+                        <td>{{ f.name }}</td>
+                        <td><span class="sev sev-{{ f.severity }}">{{ f.severity }}</span></td>
+                        <td class="desc-cell">{{ f.description }}</td>
+                        <td>{{ f.tags }}</td>
+                        {% if scan.ai_enabled %}
+                        <td>
+                            {% if f.is_false_positive %}
+                            <span class="ai-badge ai-fp">误报</span>
+                            {% elif f.finding_type == 'tech' %}
+                            <span class="ai-badge ai-tech">技术识别</span>
+                            {% else %}
+                            <span class="ai-badge ai-malicious">真实漏洞</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="confidence-bar"><span class="confidence-fill
+                            {% if f.confidence >= 0.7 %}conf-high
+                            {% elif f.confidence >= 0.4 %}conf-mid
+                            {% else %}conf-low{% endif %}
+                            " style="width:{{ (f.confidence * 100)|int }}%"></span></span>
+                            <small>{{ (f.confidence * 100)|int }}%</small>
+                        </td>
+                        <td class="ai-reason">{{ f.reason }}</td>
+                        {% endif %}
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+
+            {% if scan.ai_enabled and (scan.confirmed or scan.false_positives) %}
+            <div class="ai-summary">
+                <div class="ai-summary-box good">
+                    <div class="num">{{ scan.confirmed|length }}</div>
+                    <div class="sub">AI确认为真实漏洞/信息</div>
+                </div>
+                <div class="ai-summary-box bad">
+                    <div class="num">{{ scan.false_positives|length }}</div>
+                    <div class="sub">AI判定为误报</div>
+                </div>
+            </div>
+            {% endif %}
+            {% else %}
+            <div class="empty">未发现匹配项</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+        {% endif %}
+
         <footer>
-            <p>Built with FastAPI + Nuclei + Ollama</p>
+            <p>Built with FastAPI + Nuclei + Ollama &middot; D:\NucleiAI</p>
         </footer>
     </div>
 </body>

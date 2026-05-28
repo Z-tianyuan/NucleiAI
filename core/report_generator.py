@@ -1,8 +1,8 @@
-"""Chinese pentest report generator using LLM."""
+"""Chinese pentest report generator — LLM summary + structured data."""
 
 import json
+import httpx
 from datetime import datetime
-
 
 SUMMARY_PROMPT = """你是资深渗透测试专家。根据以下漏洞扫描结果，生成一份中文漏洞摘要。
 
@@ -30,18 +30,108 @@ def build_summary_input(results: list[dict]) -> str:
     simplified = []
     for r in results:
         info = r.get("info", {})
+        verdict = r.get("ai_verdict", {})
         simplified.append({
             "name": info.get("name", "Unknown"),
             "severity": info.get("severity", "info"),
             "description": info.get("description", "")[:200],
             "tags": info.get("tags", []),
+            "ai_verdict": verdict.get("finding_type", "?"),
+            "is_false_positive": verdict.get("is_false_positive", False),
         })
     return SUMMARY_PROMPT.format(results_json=json.dumps(simplified, ensure_ascii=False))
 
 
+async def generate_llm_summary(results: list[dict], ollama_host: str = "http://localhost:11434",
+                               model: str = "qwen3:8b") -> dict:
+    """Call LLM to generate a Chinese summary of scan findings."""
+    prompt = build_summary_input(results)
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(
+            f"{ollama_host}/api/chat",
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": "你是资深渗透测试专家，只回复JSON格式。"},
+                    {"role": "user", "content": prompt},
+                ],
+                "stream": False,
+            },
+        )
+
+    if resp.status_code != 200:
+        return _fallback_summary(results)
+
+    content = resp.json()["message"]["content"]
+    try:
+        start = content.find("{")
+        end = content.rfind("}") + 1
+        if start != -1 and end > start:
+            return json.loads(content[start:end])
+    except (json.JSONDecodeError, KeyError):
+        pass
+    return _fallback_summary(results)
+
+
+def _fallback_summary(results: list[dict]) -> dict:
+    """Generate a basic summary without LLM."""
+    severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+    for r in results:
+        sev = r.get("info", {}).get("severity", "info")
+        if sev in severity_counts:
+            severity_counts[sev] += 1
+
+    total = len(results)
+    if total == 0:
+        return {
+            "overall_grade": "A", "total_vulnerabilities": 0,
+            "severity_counts": severity_counts,
+            "top_issues": [], "summary": "未发现安全漏洞。"
+        }
+
+    if severity_counts["critical"] > 0:
+        grade = "F"
+    elif severity_counts["high"] > 0:
+        grade = "D"
+    elif severity_counts["medium"] > 0:
+        grade = "C"
+    elif severity_counts["low"] > 0:
+        grade = "B"
+    else:
+        grade = "A"
+
+    top = sorted(results, key=lambda r: {
+        "critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4
+    }.get(r.get("info", {}).get("severity", "info"), 99))[:3]
+    top_issues = [r.get("info", {}).get("name", "Unknown") for r in top]
+
+    return {
+        "overall_grade": grade, "total_vulnerabilities": total,
+        "severity_counts": severity_counts, "top_issues": top_issues,
+        "summary": f"共发现{total}个问题，建议优先处理高危及以上漏洞。"
+    }
+
+
+def _row(r: dict) -> dict:
+    """Convert a raw nuclei result to a flat display row."""
+    info = r.get("info", {})
+    verdict = r.get("ai_verdict", {})
+    return {
+        "name": info.get("name", "Unknown"),
+        "severity": info.get("severity", "info"),
+        "description": info.get("description", ""),
+        "tags": ", ".join(info.get("tags", [])),
+        "finding_type": verdict.get("finding_type", "?"),
+        "is_false_positive": verdict.get("is_false_positive", False),
+        "confidence": verdict.get("confidence", 0),
+        "reason": verdict.get("reason", ""),
+    }
+
+
 def generate_report_data(results: list[dict], confirmed: list[dict],
                          false_positives: list[dict]) -> dict:
-    """Generate structured report data for PDF rendering."""
+    """Generate structured report data for HTML rendering."""
     severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 
     sorted_confirmed = sorted(
@@ -64,6 +154,6 @@ def generate_report_data(results: list[dict], confirmed: list[dict],
             "false_positives": len(false_positives),
         },
         "severity_counts": severity_counts,
-        "findings": sorted_confirmed,
-        "false_positives": false_positives,
+        "findings": [_row(r) for r in sorted_confirmed],
+        "false_positives": [_row(r) for r in false_positives],
     }

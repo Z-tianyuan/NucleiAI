@@ -1,0 +1,22 @@
+id: vuln-debug-exposure
+
+info:
+  name: Debug Endpoint Information Exposure
+  author: Z-tianyuan
+  severity: medium
+  description: /debug 端点暴露了 Python 版本、工作目录、环境变量和进程 PID 等敏感信息
+  tags: vuln,exposure,debug,misconfig
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/debug"
+      - "{{BaseURL}}/status"
+
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "Debug Information"
+          - "python_version"
+        condition: and

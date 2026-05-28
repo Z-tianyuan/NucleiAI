@@ -1,0 +1,20 @@
+id: vuln-redirect-generic
+
+info:
+  name: Generic Redirect Detection via URL Parameter
+  author: Z-tianyuan
+  severity: low
+  description: 检测到根据 URL 参数执行 302 跳转的行为，需要人工确认是否为合法跳转
+  tags: vuln,redirect,open-redirect
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/redirect?url=http://evil.com"
+      - "{{BaseURL}}/goto?url=http://evil.com"
+
+    matchers:
+      - type: status
+        status:
+          - 302
+          - 301

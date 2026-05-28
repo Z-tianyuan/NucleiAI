@@ -1,0 +1,19 @@
+id: vuln-admin-exposure
+
+info:
+  name: Admin Panel Publicly Accessible
+  author: Z-tianyuan
+  severity: medium
+  description: 管理后台面板未做访问控制，可通过 /admin 直接访问登录界面
+  tags: vuln,exposure,admin,misconfig
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/admin"
+
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "Admin Panel"

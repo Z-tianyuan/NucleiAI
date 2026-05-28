@@ -1,0 +1,26 @@
+id: demo-server-tech
+
+info:
+  name: Demo - Python Server Detection
+  author: Z-tianyuan
+  severity: info
+  description: 通过响应头识别 Python 技术栈
+  tags: demo,tech,discovery
+
+# 技法 2: 多字段匹配 (header + body)
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/"
+
+    matchers-condition: and    # 两个条件必须同时满足
+    matchers:
+      - type: word
+        part: header           # 只看响应头
+        words:
+          - "Python"
+
+      - type: word
+        part: body             # 也要看响应体
+        words:
+          - "html"             # 确认返回了 HTML 页面

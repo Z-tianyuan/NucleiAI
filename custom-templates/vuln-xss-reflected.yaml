@@ -1,0 +1,21 @@
+id: vuln-xss-reflected
+
+info:
+  name: Reflected XSS via Search Parameter
+  author: Z-tianyuan
+  severity: medium
+  description: 搜索参数 q 的值被原样回显到页面中，未做任何 HTML 实体编码，可被利用进行钓鱼攻击
+  tags: vuln,xss,reflected
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/search?q=%3Cscript%3Ealert%28%27XSS%27%29%3C%2Fscript%3E"
+      - "{{BaseURL}}/blog/xss-tutorial"
+      - "{{BaseURL}}/safe-search?q=%3Cscript%3Ealert%28%27XSS%27%29%3C%2Fscript%3E"
+
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "<script>alert('XSS')</script>"

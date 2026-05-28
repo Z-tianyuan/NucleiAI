@@ -1,0 +1,23 @@
+id: vuln-sqli-error
+
+info:
+  name: SQL Injection Error Disclosure
+  author: NucleiAI
+  severity: high
+  description: SQL错误信息泄露，暴露数据库类型、查询语句和表结构
+  tags: vuln,sqli,error
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/api/users?id=1%27"
+      - "{{BaseURL}}/api/users?id=1%27+OR+1%3D1--"
+
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "SQLSTATE"
+          - "MySQL"
+          - "Syntax error"
+        condition: and

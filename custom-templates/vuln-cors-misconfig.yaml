@@ -1,0 +1,21 @@
+id: vuln-cors-misconfig
+
+info:
+  name: CORS Misconfiguration - Wildcard with Credentials
+  author: NucleiAI
+  severity: medium
+  description: CORS配置错误，同时设置了Access-Control-Allow-Origin:*和Allow-Credentials:true
+  tags: vuln,misconfig,cors
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/api/data"
+
+    matchers:
+      - type: word
+        part: header
+        words:
+          - "Access-Control-Allow-Origin: *"
+          - "Access-Control-Allow-Credentials: true"
+        condition: and

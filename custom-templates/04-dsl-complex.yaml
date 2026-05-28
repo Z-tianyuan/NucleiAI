@@ -1,0 +1,25 @@
+id: demo-dsl-complex
+
+info:
+  name: Demo - DSL Complex Detection
+  author: Z-tianyuan
+  severity: low
+  description: 用 DSL 表达式组合多个条件判断
+  tags: demo,dsl
+
+# 技法 4: DSL 表达式 (domain-specific language)
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/"
+
+    matchers:
+      - type: dsl
+        dsl:
+          # 条件下：status_code 是 200
+          - "status_code == 200"
+          # 条件二：响应体长度大于 1000 (排除空页面)
+          - "len(body) > 1000"
+          # 条件三：响应头包含 Server 字段
+          - "contains(tolower(header), 'server')"
+        condition: and

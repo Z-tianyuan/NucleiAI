@@ -1,0 +1,23 @@
+id: vuln-missing-security-headers
+
+info:
+  name: Missing Security Headers
+  author: NucleiAI
+  severity: low
+  description: 响应缺少关键安全头（X-Frame-Options/X-Content-Type-Options），增加点击劫持和MIME嗅探风险
+  tags: misconfig,exposure
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}"
+      - "{{BaseURL}}/admin"
+
+    matchers-condition: or
+    matchers:
+      - type: dsl
+        dsl:
+          - "!contains(to_lower(header), 'x-frame-options')"
+      - type: dsl
+        dsl:
+          - "!contains(to_lower(header), 'x-content-type-options')"

@@ -1,0 +1,23 @@
+id: vuln-open-redirect
+
+info:
+  name: Open Redirect via URL Parameter
+  author: Z-tianyuan
+  severity: medium
+  description: /redirect 端点接受任意 url 参数并执行 302 跳转，可被用于钓鱼攻击掩盖恶意链接
+  tags: vuln,redirect,open-redirect
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/redirect?url=http://evil.com"
+
+    matchers:
+      - type: status
+        status:
+          - 302
+
+      - type: word
+        part: header
+        words:
+          - "Location: http://evil.com"

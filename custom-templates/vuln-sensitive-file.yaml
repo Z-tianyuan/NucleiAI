@@ -1,0 +1,22 @@
+id: vuln-sensitive-file
+
+info:
+  name: Sensitive File Exposure
+  author: NucleiAI
+  severity: high
+  description: 敏感配置文件（.env/备份文件）可通过Web访问，泄露数据库密码和API密钥
+  tags: vuln,exposure
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/backup/.env.production"
+      - "{{BaseURL}}/backup/config.php.bak"
+
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "DB_PASS"
+          - "SECRET_KEY"
+        condition: and

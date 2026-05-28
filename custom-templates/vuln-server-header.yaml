@@ -1,0 +1,19 @@
+id: vuln-server-header-leak
+
+info:
+  name: Web Server Version Disclosure
+  author: Z-tianyuan
+  severity: info
+  description: 响应头 Server 字段泄露了 Apache 版本号和操作系统信息
+  tags: vuln,exposure,tech
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/"
+
+    matchers:
+      - type: word
+        part: header
+        words:
+          - "Apache/2.4.57"

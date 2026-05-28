@@ -1,0 +1,20 @@
+id: vuln-ssrf
+
+info:
+  name: Server-Side Request Forgery (SSRF)
+  author: NucleiAI
+  severity: high
+  description: 服务端请求伪造端点，攻击者可控制URL参数让服务器发起任意请求
+  tags: vuln,ssrf
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/fetch?url=http://169.254.169.254/"
+      - "{{BaseURL}}/fetch?url=http://internal-api/"
+
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "URL Fetcher"

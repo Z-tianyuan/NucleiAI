@@ -1,0 +1,20 @@
+id: vuln-git-exposure
+
+info:
+  name: Git Directory Exposure
+  author: Z-tianyuan
+  severity: high
+  description: /.git 目录可通过 Web 访问，攻击者可下载 Git 仓库文件提取源码和敏感信息
+  tags: vuln,exposure,git,misconfig
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/.git/"
+      - "{{BaseURL}}/about"
+
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "Index of /.git"

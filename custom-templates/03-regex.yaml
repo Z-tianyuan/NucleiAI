@@ -1,0 +1,20 @@
+id: demo-python-version
+
+info:
+  name: Demo - Python Version Extraction
+  author: Z-tianyuan
+  severity: info
+  description: 用正则提取 Python 具体版本号
+  tags: demo,tech,discovery
+
+# 技法 3: 正则匹配 (regex matching)
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/"
+
+    matchers:
+      - type: regex
+        part: header
+        regex:
+          - "Python/\\d+\\.\\d+\\.\\d+"    # 匹配 Python/3.14.3 这种版本号

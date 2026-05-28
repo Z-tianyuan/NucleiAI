@@ -1,0 +1,21 @@
+id: demo-directory-listing
+
+info:
+  name: Demo - Directory Listing Detection
+  author: Z-tianyuan
+  severity: info
+  description: 检测到目标开启了目录浏览功能
+  tags: demo,discovery,misconfig
+
+# 技法 1: 简单的关键词匹配 (word matching)
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/"
+      - "{{BaseURL}}/nonexistent"
+
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "Directory listing for"

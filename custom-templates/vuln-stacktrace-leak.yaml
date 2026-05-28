@@ -1,0 +1,22 @@
+id: vuln-stacktrace-leak
+
+info:
+  name: Error Page with Stack Trace Exposure
+  author: Z-tianyuan
+  severity: low
+  description: 错误页面输出了完整的 Python Traceback 错误堆栈，包含数据库连接地址等敏感信息
+  tags: vuln,exposure,error,debug
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/error"
+      - "{{BaseURL}}/oops"
+
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "Traceback"
+          - "DatabaseError"
+        condition: and

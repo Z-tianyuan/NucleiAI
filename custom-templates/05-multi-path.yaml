@@ -1,0 +1,30 @@
+id: demo-multi-path
+
+info:
+  name: Demo - Multi-Path Detection
+  author: Z-tianyuan
+  severity: info
+  description: 同时对多个路径发起检测，任一命中即报告
+  tags: demo,discovery
+
+# 技法 5: 多路径 + OR 逻辑
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/"
+      - "{{BaseURL}}/index.html"
+      - "{{BaseURL}}/nonexistent-page-xyz"
+
+    stop-at-first-match: true    # 第一个命中就停止，提高效率
+
+    matchers:
+      - type: status
+        status:
+          - 200
+
+      - type: word
+        part: body
+        words:
+          - "Directory listing for"
+          - "html"                     # 任一关键词出现即可
+        condition: or

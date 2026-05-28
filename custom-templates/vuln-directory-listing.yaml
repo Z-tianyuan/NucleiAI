@@ -1,0 +1,22 @@
+id: vuln-directory-listing
+
+info:
+  name: Directory Listing Enabled
+  author: NucleiAI
+  severity: medium
+  description: 目录浏览功能已启用，攻击者可浏览服务器文件列表
+  tags: vuln,misconfig,exposure
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/files/"
+      - "{{BaseURL}}/backup/"
+
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "Index of /"
+          - "<a href="
+        condition: and

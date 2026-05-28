@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>NucleiAI 漏洞扫描报告</title>
+    <style>
+        @page { margin: 15mm; size: A4; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, 'Microsoft YaHei', sans-serif;
+               color: #1e293b; background: #fff; font-size: 12px;
+               max-width: 210mm; margin: 0 auto; padding: 12mm 15mm; }
+
+        .cover { text-align: center; padding: 60px 0 40px; border-bottom: 3px solid #2563eb; }
+        .cover h1 { font-size: 26px; color: #1e40af; margin-bottom: 8px; }
+        .cover .subtitle { color: #64748b; font-size: 14px; margin-bottom: 30px; }
+        .cover .meta-line { color: #475569; font-size: 11px; margin: 4px 0; }
+
+        .summary-box { background: #f8fafc; border: 1px solid #e2e8f0;
+                       border-radius: 8px; padding: 16px 20px; margin: 20px 0; }
+        .grade { display: inline-block; font-size: 48px; font-weight: 800;
+                 width: 80px; height: 80px; line-height: 80px; text-align: center;
+                 border-radius: 16px; margin-right: 16px; vertical-align: middle; }
+        .grade-A { background: #dcfce7; color: #16a34a; }
+        .grade-B { background: #dbeafe; color: #2563eb; }
+        .grade-C { background: #fef9c3; color: #ca8a04; }
+        .grade-D { background: #fed7aa; color: #ea580c; }
+        .grade-F { background: #fecaca; color: #dc2626; }
+
+        .severity-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 16px 0; }
+        .sev-cell { text-align: center; padding: 10px 6px; border-radius: 8px; }
+        .sev-cell .num { font-size: 22px; font-weight: 700; display: block; }
+        .sev-cell .label { font-size: 10px; color: #64748b; margin-top: 2px; }
+        .sev-critical { background: #fef2f2; border: 1px solid #fecaca; }
+        .sev-high { background: #fff7ed; border: 1px solid #fed7aa; }
+        .sev-medium { background: #fefce8; border: 1px solid #fef08a; }
+        .sev-low { background: #f0fdf4; border: 1px solid #bbf7d0; }
+        .sev-info { background: #eff6ff; border: 1px solid #bfdbfe; }
+
+        h2 { font-size: 16px; color: #1e40af; border-bottom: 2px solid #2563eb;
+             padding-bottom: 4px; margin: 24px 0 12px; }
+        h3 { font-size: 13px; margin: 16px 0 8px; }
+
+        .top-issues { list-style: none; }
+        .top-issues li { padding: 8px 12px; margin: 6px 0; background: #fef2f2;
+                         border-left: 3px solid #ef4444; border-radius: 0 6px 6px 0; font-size: 12px; }
+
+        table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+        th { background: #f1f5f9; text-align: left; padding: 8px 10px;
+             font-size: 10px; text-transform: uppercase; color: #64748b; }
+        td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; font-size: 11px; }
+        tr:hover td { background: #f8fafc; }
+
+        .badge { padding: 1px 7px; border-radius: 10px; font-size: 9px; font-weight: 600; }
+        .badge-critical { background: #fecaca; color: #991b1b; }
+        .badge-high { background: #fed7aa; color: #9a3412; }
+        .badge-medium { background: #fef08a; color: #854d0e; }
+        .badge-low { background: #bbf7d0; color: #166534; }
+        .badge-info { background: #bfdbfe; color: #1e40af; }
+        .badge-fp { background: #fecaca; color: #991b1b; }
+        .badge-confirmed { background: #bbf7d0; color: #166534; }
+
+        .footer { margin-top: 30px; padding-top: 12px; border-top: 1px solid #e2e8f0;
+                  color: #94a3b8; font-size: 10px; text-align: center; }
+
+        @media print {
+            body { padding: 0; }
+            .no-print { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="cover">
+    <h1>NucleiAI 漏洞扫描报告</h1>
+    <div class="subtitle">AI 增强漏洞管理平台 — 智能误报过滤</div>
+    <div class="meta-line">扫描目标：{{ report.scan_target }}</div>
+    <div class="meta-line">生成时间：{{ report.meta.generated_at }}</div>
+    <div class="meta-line">扫描引擎：Nuclei v3.8.0 &middot; AI 模型：qwen3:8b</div>
+</div>
+
+{% if summary %}
+<h2>AI 安全评估摘要</h2>
+<div class="summary-box">
+    <span class="grade grade-{{ summary.overall_grade }}">{{ summary.overall_grade }}</span>
+    <div style="display:inline-block;vertical-align:middle;">
+        <p style="font-size:14px;color:#1e293b;">{{ summary.summary }}</p>
+    </div>
+</div>
+
+<div class="severity-grid">
+    <div class="sev-cell sev-critical"><span class="num">{{ summary.severity_counts.critical }}</span><span class="label">严重</span></div>
+    <div class="sev-cell sev-high"><span class="num">{{ summary.severity_counts.high }}</span><span class="label">高危</span></div>
+    <div class="sev-cell sev-medium"><span class="num">{{ summary.severity_counts.medium }}</span><span class="label">中危</span></div>
+    <div class="sev-cell sev-low"><span class="num">{{ summary.severity_counts.low }}</span><span class="label">低危</span></div>
+    <div class="sev-cell sev-info"><span class="num">{{ summary.severity_counts.info }}</span><span class="label">信息</span></div>
+</div>
+
+{% if summary.top_issues %}
+<h3>优先修复事项</h3>
+<ol class="top-issues">
+    {% for issue in summary.top_issues %}
+    <li>{{ issue }}</li>
+    {% endfor %}
+</ol>
+{% endif %}
+{% endif %}
+
+<h2>AI 确认真实漏洞 ({{ report.meta.confirmed }} 项)</h2>
+{% if report.findings %}
+<table>
+    <thead>
+        <tr>
+            <th>检测名称</th>
+            <th>严重度</th>
+            <th>类型</th>
+            <th>描述</th>
+            <th>AI置信度</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for f in report.findings %}
+        <tr>
+            <td>{{ f.name }}</td>
+            <td><span class="badge badge-{{ f.severity }}">{{ f.severity }}</span></td>
+            <td>
+                {% if f.finding_type == 'tech' %}
+                <span class="badge badge-info">技术识别</span>
+                {% elif f.finding_type == 'vuln' %}
+                <span class="badge badge-high">漏洞</span>
+                {% else %}
+                <span class="badge badge-medium">{{ f.finding_type }}</span>
+                {% endif %}
+            </td>
+            <td>{{ f.description | truncate(80) }}</td>
+            <td>{{ (f.confidence * 100) | int }}%</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p style="color:#64748b;">无</p>
+{% endif %}
+
+{% if report.false_positives %}
+<h2>AI 判定误报 ({{ report.meta.false_positives }} 项)</h2>
+<table>
+    <thead>
+        <tr>
+            <th>检测名称</th>
+            <th>严重度</th>
+            <th>误报理由</th>
+            <th>标签</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for f in report.false_positives %}
+        <tr>
+            <td>{{ f.name }}</td>
+            <td><span class="badge badge-{{ f.severity }}">{{ f.severity }}</span></td>
+            <td>{{ f.reason }}</td>
+            <td>{{ f.tags }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+<div class="footer">
+    <p>本报告由 NucleiAI 自动生成 &middot; 扫描时间：{{ report.scan_time }} &middot; 报告仅供授权安全测试使用</p>
+</div>
+
+<div class="no-print" style="text-align:center;margin-top:20px;">
+    <button onclick="window.print()" style="padding:10px 30px;background:#2563eb;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;">
+        打印 / 保存为 PDF
+    </button>
+</div>
+
+</body>
+</html>

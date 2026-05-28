@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+               background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+        .container { max-width: 960px; margin: 0 auto; padding: 2rem; }
+        header { text-align: center; padding: 1.5rem 0; }
+        header h1 { font-size: 1.6rem; color: #38bdf8; }
+        header p { color: #94a3b8; margin-top: 0.3rem; font-size: 0.85rem; }
+        a { color: #38bdf8; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        .summary-bar { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;
+                       margin: 1.5rem 0; }
+        .summary-card { background: #1e293b; border-radius: 10px; padding: 1rem;
+                        text-align: center; }
+        .summary-card.fixed { border: 1px solid #22c55e; }
+        .summary-card.new { border: 1px solid #ef4444; }
+        .summary-card.persistent { border: 1px solid #eab308; }
+        .summary-card .num { font-size: 1.8rem; font-weight: 700; }
+        .summary-card.fixed .num { color: #86efac; }
+        .summary-card.new .num { color: #fca5a5; }
+        .summary-card.persistent .num { color: #fde68a; }
+        .summary-card .label { color: #94a3b8; font-size: 0.8rem; margin-top: 4px; }
+
+        .result-card { background: #1e293b; border: 1px solid #334155;
+                       border-radius: 12px; margin: 1rem 0; overflow: hidden; }
+        .result-header { padding: 10px 18px; background: #162032; font-weight: 600;
+                         font-size: 0.9rem; }
+        .result-header.fixed { color: #86efac; }
+        .result-header.new { color: #fca5a5; }
+        .result-header.persistent { color: #fde68a; }
+
+        table { width: 100%; border-collapse: collapse; }
+        thead { background: #0f172a; }
+        th { text-align: left; padding: 8px 18px; color: #94a3b8;
+             font-size: 0.78rem; text-transform: uppercase; }
+        td { padding: 6px 18px; border-top: 1px solid #1e293b; font-size: 0.85rem; }
+
+        .sev { padding: 2px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: 600; }
+        .sev-info    { background: #1e40af; color: #93c5fd; }
+        .sev-low     { background: #166534; color: #86efac; }
+        .sev-medium  { background: #854d0e; color: #fde68a; }
+        .sev-high    { background: #991b1b; color: #fca5a5; }
+        .sev-critical{ background: #7f1d1d; color: #fecaca; }
+
+        .empty { text-align: center; color: #64748b; padding: 1.5rem 0; }
+        .back-link { margin-top: 1.5rem; text-align: center; }
+
+        .compare-form { background: #1e293b; border: 1px solid #334155;
+                        border-radius: 10px; padding: 1rem; margin: 1rem 0; }
+        .compare-form select { padding: 6px 10px; border-radius: 6px;
+                               border: 1px solid #475569; background: #0f172a;
+                               color: #e2e8f0; font-size: 0.85rem; margin: 0 8px; }
+        .compare-form button { padding: 8px 18px; border-radius: 8px;
+                               border: none; background: #2563eb; color: #fff;
+                               font-size: 0.85rem; font-weight: 600; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Scan Diff</h1>
+            <p>{{ diff.scan_a_target }} ({{ diff.scan_a_time }}) vs {{ diff.scan_b_target }} ({{ diff.scan_b_time }})</p>
+        </header>
+
+        <a href="/">&larr; 返回 Dashboard</a>
+
+        <div class="compare-form">
+            <form method="get" action="/compare">
+                <label style="color:#94a3b8;font-size:0.85rem;">重新选择对比:</label>
+                <select name="i1">
+                    {% for s in history %}
+                    <option value="{{ loop.index0 }}" {% if loop.index0 == i1 %}selected{% endif %}>
+                        [{{ loop.index0 }}] {{ s.target }} ({{ s.time }})
+                    </option>
+                    {% endfor %}
+                </select>
+                <span style="color:#94a3b8;">vs</span>
+                <select name="i2">
+                    {% for s in history %}
+                    <option value="{{ loop.index0 }}" {% if loop.index0 == i2 %}selected{% endif %}>
+                        [{{ loop.index0 }}] {{ s.target }} ({{ s.time }})
+                    </option>
+                    {% endfor %}
+                </select>
+                <button type="submit">对比</button>
+            </form>
+        </div>
+
+        <div class="summary-bar">
+            <div class="summary-card fixed">
+                <div class="num">{{ diff.fixed|length }}</div>
+                <div class="label">已修复 (Fixed)</div>
+            </div>
+            <div class="summary-card new">
+                <div class="num">{{ diff.new|length }}</div>
+                <div class="label">新增 (New)</div>
+            </div>
+            <div class="summary-card persistent">
+                <div class="num">{{ diff.persistent|length }}</div>
+                <div class="label">持续存在 (Persistent)</div>
+            </div>
+        </div>
+
+        {% macro render_table(items, category) %}
+        <div class="result-card">
+            <div class="result-header {{ category }}">
+                {% if category == 'fixed' %}已修复 (在A中出现，B中消失){% endif %}
+                {% if category == 'new' %}新增发现 (在B中新出现){% endif %}
+                {% if category == 'persistent' %}持续存在 (两次扫描均有){% endif %}
+            </div>
+            {% if items %}
+            <table>
+                <thead><tr><th>名称</th><th>严重度</th><th>说明</th><th>URL</th></tr></thead>
+                <tbody>
+                {% for f in items %}
+                <tr>
+                    <td>{{ f.name }}</td>
+                    <td><span class="sev sev-{{ f.severity }}">{{ f.severity }}</span></td>
+                    <td style="color:#94a3b8;font-size:0.8rem;">{{ f.description[:80] }}</td>
+                    <td style="font-size:0.78rem;color:#64748b;">{{ f.url[:60] }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty">无</div>
+            {% endif %}
+        </div>
+        {% endmacro %}
+
+        {{ render_table(diff.fixed, 'fixed') }}
+        {{ render_table(diff.new, 'new') }}
+        {{ render_table(diff.persistent, 'persistent') }}
+
+        <div class="back-link">
+            <a href="/">&larr; 返回 Dashboard</a>
+        </div>
+    </div>
+</body>
+</html>
