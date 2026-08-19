@@ -73,7 +73,8 @@ def _build_nuclei_args(target: str, output_file: str,
 
 def collect_templates(include_demo: bool = False,
                       suggested: list[str] | None = None,
-                      include_community: bool = False) -> list[str]:
+                      include_community: bool = False,
+                      custom_dir: str | None = None) -> list[str]:
     """Collect all templates to use for a scan.
 
     Returns a flat list of -t <path> pairs ready to extend into nuclei args.
@@ -85,11 +86,11 @@ def collect_templates(include_demo: bool = False,
 
     cfg = get_config()
     base_dir = Path(__file__).resolve().parent.parent
-    custom_dir = base_dir / "custom-templates"
+    custom_path = Path(custom_dir) if custom_dir else base_dir / "custom-templates"
     templates: list[str] = []
 
     # 1. Custom vulnerability templates (skip demo 01-05 unless include_demo)
-    for tmpl in sorted(_glob.glob(str(custom_dir / "*.yaml"))):
+    for tmpl in sorted(_glob.glob(str(custom_path / "*.yaml"))):
         fname = os.path.basename(tmpl)
         if not include_demo and fname[:2] in ("01", "02", "03", "04", "05"):
             continue

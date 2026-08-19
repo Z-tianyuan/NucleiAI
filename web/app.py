@@ -1,9 +1,7 @@
 """NucleiAI Web Dashboard — FastAPI backend."""
 
 import asyncio
-import json
 import subprocess
-import tempfile
 import os
 import sys
 import glob
@@ -11,7 +9,7 @@ from pathlib import Path
 from datetime import datetime
 
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 app = FastAPI(title="NucleiAI", version="0.1.0")
@@ -22,17 +20,103 @@ sys.path.insert(0, str(BASE_DIR))
 from core.config import get_config, check_binaries
 from core.ai_filter import filter_results
 from core.report_generator import generate_report_data, generate_llm_summary
-from core.scanner import collect_templates, _get_random_ua, _is_localhost
+from core.scanner import collect_templates, run_scan
 from core.fingerprint import fingerprint_target, suggest_templates
 from core.subdomain import enumerate_subdomains, check_live_hosts, enumerate_subdomains_fallback
 from core.crawler import crawl, CrawlResult
 from core.session import build_headers_from_form, list_sessions, save_session, delete_session, Session
 import uuid
+from urllib.parse import quote
 
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
 
 SCAN_HISTORY = []
 CRAWL_CACHE: dict[str, CrawlResult] = {}
+
+
+def _auth_token() -> str:
+    """Return the panel access token: env NUCLEIAI_TOKEN takes precedence over config."""
+    token = os.environ.get("NUCLEIAI_TOKEN", "").strip()
+    if token:
+        return token
+    return str(get_config().get("auth_token", "") or "").strip()
+
+
+@app.middleware("http")
+async def auth_guard(request: Request, call_next):
+    """Require a token when configured. GET 请求跳转登录页，其余请求返回 401。"""
+    token = _auth_token()
+    if not token:
+        return await call_next(request)
+
+    path = request.url.path
+    if path.startswith(("/login", "/static", "/health", "/logout")):
+        return await call_next(request)
+
+    supplied = request.headers.get("X-NucleiAI-Token") or request.cookies.get("nucleiai_token")
+    if supplied and supplied == token:
+        return await call_next(request)
+
+    if request.method == "GET":
+        return RedirectResponse(f"/login?next={quote(path)}", status_code=303)
+    return JSONResponse({"detail": "unauthorized"}, status_code=401)
+
+
+LOGIN_PAGE = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>NucleiAI 登录</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background:#0f172a; color:#e2e8f0;
+           display:flex; align-items:center; justify-content:center; height:100vh; margin:0; }
+    .card { background:#1e293b; padding:2rem; border-radius:12px; width:320px; }
+    h1 { font-size:1.1rem; margin:0 0 1rem; }
+    input { width:100%; box-sizing:border-box; padding:0.6rem; border-radius:6px;
+            border:1px solid #334155; background:#0f172a; color:#e2e8f0; margin-bottom:0.8rem; }
+    button { width:100%; padding:0.6rem; border:0; border-radius:6px; background:#2563eb;
+             color:#fff; cursor:pointer; font-size:0.95rem; }
+    .err { color:#fca5a5; font-size:0.8rem; margin-bottom:0.6rem; }
+  </style>
+</head>
+<body>
+  <form class="card" method="post" action="/login">
+    <h1>🔐 NucleiAI 面板访问控制</h1>
+    <div class="err">__ERROR__</div>
+    <input type="password" name="token" placeholder="访问令牌" autofocus required>
+    <input type="hidden" name="next" value="__NEXT__">
+    <button type="submit">进入面板</button>
+  </form>
+</body>
+</html>"""
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, next: str = "/"):
+    return HTMLResponse(LOGIN_PAGE.replace("__NEXT__", quote(next)).replace("__ERROR__", ""))
+
+
+@app.post("/login")
+async def login(request: Request, token: str = Form(...), next: str = Form("/")):
+    if token == _auth_token():
+        resp = RedirectResponse(next if next.startswith("/") else "/", status_code=303)
+        resp.set_cookie("nucleiai_token", token, httponly=True, samesite="strict",
+                        max_age=12 * 3600, path="/")
+        return resp
+    return HTMLResponse(LOGIN_PAGE.replace("__NEXT__", quote(next))
+                        .replace("__ERROR__", "访问令牌不正确"), status_code=401)
+
+
+@app.get("/logout")
+async def logout():
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie("nucleiai_token", path="/")
+    return resp
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 
 def _create_result(target: str = "", domain: str = "") -> dict:
@@ -44,6 +128,7 @@ def _create_result(target: str = "", domain: str = "") -> dict:
         "findings": [],
         "confirmed": [],
         "false_positives": [],
+        "needs_review": [],
         "error": None,
         "ai_error": None,
         "count": 0,
@@ -102,52 +187,18 @@ def compare_scans(scan_a: dict, scan_b: dict) -> dict:
 def run_nuclei_scan(target: str, suggested_templates: list[str] | None = None,
                     include_demo: bool = False, include_community: bool = False,
                     headers: dict[str, str] | None = None) -> tuple[list[dict], list[str]]:
-    """Run nuclei against target, return (parsed raw results, templates used)."""
-    cfg = get_config()
-    output_file = tempfile.mktemp(suffix=".jsonl")
+    """Run nuclei against target, return (parsed raw results, templates used).
 
+    委托给 core.scanner.run_scan，避免两份重复的参数构建逻辑。
+    """
+    cfg = get_config()
     template_list = collect_templates(include_demo=include_demo,
                                       suggested=suggested_templates,
                                       include_community=include_community)
-
-    args = [
-        cfg["nuclei_binary"], "-target", target,
-        "-jsonl", "-silent",
-        "-output", output_file,
-        "-timeout", "30",
-        "-rate-limit", str(cfg["rate_limit"]),
-        "-concurrency", str(cfg["concurrency"]),
-        "-severity", cfg["severity"],
-    ]
-    if cfg.get("scan_delay", 0) > 0:
-        args.extend(["-delay", str(cfg["scan_delay"])])
-    if cfg.get("scan_retries", 0) > 0:
-        args.extend(["-retries", str(cfg["scan_retries"])])
-    ua = _get_random_ua()
-    if ua:
-        args.extend(["-H", f"User-Agent: {ua}"])
-    if headers:
-        for key, value in headers.items():
-            args.extend(["-H", f"{key}: {value}"])
-    for t in template_list:
-        args.extend(["-t", t])
-    if cfg.get("proxy") and not _is_localhost(target):
-        args.extend(["-proxy", cfg["proxy"]])
-
-    subprocess.run(args, timeout=cfg["timeout_per_target"], capture_output=True)
-
-    results = []
-    if os.path.exists(output_file):
-        with open(output_file, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        results.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        pass
-        os.unlink(output_file)
-
+    results = run_scan(target, templates=template_list,
+                       severity=cfg.get("severity", "critical,high,medium"),
+                       timeout=cfg.get("timeout_per_target", 600),
+                       headers=headers)
     return results, template_list
 
 
@@ -164,6 +215,7 @@ def scan_result_to_row(r: dict) -> dict:
         "url": r.get("url", ""),
         "finding_type": verdict.get("finding_type", "?"),
         "is_false_positive": verdict.get("is_false_positive", False),
+        "needs_review": verdict.get("needs_review", False),
         "confidence": verdict.get("confidence", 0),
         "reason": verdict.get("reason", ""),
     }
@@ -284,9 +336,10 @@ async def do_scan(request: Request, target: str = Form(...),
 
         if raw_results:
             try:
-                confirmed, false_positives = await filter_results(raw_results)
+                confirmed, false_positives, needs_review = await filter_results(raw_results)
                 result["confirmed"] = [scan_result_to_row(r) for r in confirmed]
                 result["false_positives"] = [scan_result_to_row(r) for r in false_positives]
+                result["needs_review"] = [scan_result_to_row(r) for r in needs_review]
             except Exception as e:
                 result["ai_enabled"] = False
                 result["ai_error"] = f"AI 过滤不可用: {e}"
@@ -331,16 +384,17 @@ async def scan_crawled_urls(request: Request,
     pipeline_result["host_results"] = []
 
     for url in selected_urls:
-        hr = {"url": url, "findings": [], "confirmed": [], "fp": [], "error": None}
+        hr = {"url": url, "findings": [], "confirmed": [], "fp": [], "review": [], "error": None}
         try:
             fingerprint = fingerprint_target(url, headers=headers)
             suggested = suggest_templates(fingerprint.get("technologies", []))
             raw, _ = run_nuclei_scan(url, suggested_templates=suggested, headers=headers)
             if raw:
-                confirmed, fp = await filter_results(raw)
+                confirmed, fp, review = await filter_results(raw)
                 hr["findings"] = [scan_result_to_row(r) for r in raw]
                 hr["confirmed"] = [scan_result_to_row(r) for r in confirmed]
                 hr["fp"] = [scan_result_to_row(r) for r in fp]
+                hr["review"] = [scan_result_to_row(r) for r in review]
         except subprocess.TimeoutExpired:
             hr["error"] = "扫描超时"
         except Exception as e:
@@ -428,11 +482,15 @@ async def view_report(request: Request, index: int):
 
     raw_results = scan.get("_raw_results", [])
     confirmed_raw = [r for r in raw_results
-                     if not r.get("ai_verdict", {}).get("is_false_positive", False)]
+                     if not r.get("ai_verdict", {}).get("is_false_positive", False)
+                     and not r.get("ai_verdict", {}).get("needs_review", False)]
     fp_raw = [r for r in raw_results
               if r.get("ai_verdict", {}).get("is_false_positive", False)]
+    review_raw = [r for r in raw_results
+                  if r.get("ai_verdict", {}).get("needs_review", False)
+                  and not r.get("ai_verdict", {}).get("is_false_positive", False)]
 
-    report_data = generate_report_data(raw_results, confirmed_raw, fp_raw)
+    report_data = generate_report_data(raw_results, confirmed_raw, fp_raw, review_raw)
     report_data["scan_target"] = scan["target"]
     report_data["scan_time"] = scan["time"]
 
@@ -512,15 +570,16 @@ async def pipeline_scan(request: Request, domain: str = Form(...),
                 if not url.startswith("http"):
                     url = f"http://{url}"
 
-                host_result = {"url": url, "findings": [], "confirmed": [], "fp": [], "error": None}
+                host_result = {"url": url, "findings": [], "confirmed": [], "fp": [], "review": [], "error": None}
                 try:
                     raw_results, _ = run_nuclei_scan(url, None, include_demo=False,
                                                      headers=headers if headers else None)
                     if raw_results:
-                        confirmed, fp = await filter_results(raw_results)
+                        confirmed, fp, review = await filter_results(raw_results)
                         host_result["findings"] = [scan_result_to_row(r) for r in raw_results]
                         host_result["confirmed"] = [scan_result_to_row(r) for r in confirmed]
                         host_result["fp"] = [scan_result_to_row(r) for r in fp]
+                        host_result["review"] = [scan_result_to_row(r) for r in review]
                 except subprocess.TimeoutExpired:
                     host_result["error"] = "扫描超时"
                 except Exception as e:

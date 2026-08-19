@@ -57,18 +57,36 @@ def _resolve_templates_dir(configured: str) -> str:
     return ""
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Recursively merge override into base (override wins)."""
+    out = dict(base)
+    for key, value in (override or {}).items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = _deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
 def _load_config() -> dict:
-    """Load and process config.yaml."""
+    """Load and process config.yaml (overlaid with config.local.yaml, then env vars)."""
     if CONFIG_PATH.exists():
         with open(CONFIG_PATH, encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
     else:
         cfg = {}
 
+    # Local overrides (gitignored, for keeping machine-specific paths out of the repo)
+    local_path = CONFIG_PATH.with_name("config.local.yaml")
+    if local_path.exists():
+        with open(local_path, encoding="utf-8") as f:
+            cfg = _deep_merge(cfg, yaml.safe_load(f) or {})
+
     # Flatten the structure
     paths = cfg.get("paths", {})
     network = cfg.get("network", {})
     ollama = cfg.get("ollama", {})
+    llm = cfg.get("llm", {})
     server = cfg.get("server", {})
     scan = cfg.get("scan", {})
     auth = cfg.get("auth", {})
@@ -76,19 +94,28 @@ def _load_config() -> dict:
 
     return {
         # Binary paths — auto-detect if not configured
-        "nuclei_binary": _resolve_binary("nuclei", paths.get("nuclei_binary", "")),
-        "httpx_binary": _resolve_binary("httpx", paths.get("httpx_binary", "")),
-        "templates_dir": _resolve_templates_dir(paths.get("templates_dir", "")),
+        "nuclei_binary": _resolve_binary("nuclei", os.environ.get("NUCLEIAI_NUCLEI_BIN", "") or paths.get("nuclei_binary", "")),
+        "httpx_binary": _resolve_binary("httpx", os.environ.get("NUCLEIAI_HTTPX_BIN", "") or paths.get("httpx_binary", "")),
+        "templates_dir": _resolve_templates_dir(os.environ.get("NUCLEIAI_TEMPLATES_DIR", "") or paths.get("templates_dir", "")),
         # Proxy — empty string means no proxy
-        "proxy": network.get("proxy", ""),
+        "proxy": os.environ.get("NUCLEIAI_PROXY", "") or network.get("proxy", ""),
         "timeout": network.get("timeout", 300),
         # Ollama
         "ollama_host": ollama.get("host", "http://localhost:11434"),
         "ollama_model": ollama.get("model", "qwen3:8b"),
         "ollama_timeout": ollama.get("timeout", 120),
+        # Unified LLM (OpenAI-compatible API or Ollama)
+        "llm_provider": os.environ.get("NUCLEIAI_LLM_PROVIDER", "") or llm.get("provider", "auto"),
+        "llm_base_url": os.environ.get("NUCLEIAI_LLM_BASE_URL", "") or llm.get("base_url", ""),
+        "llm_model": os.environ.get("NUCLEIAI_LLM_MODEL", "") or llm.get("model", "deepseek-chat"),
+        "llm_api_key_env": llm.get("api_key_env", "NUCLEIAI_LLM_API_KEY"),
+        "llm_api_key": llm.get("api_key", ""),
+        "llm_temperature": llm.get("temperature", 0.2),
+        "llm_timeout": llm.get("timeout", 120),
         # Server
         "server_host": server.get("host", "127.0.0.1"),
         "server_port": server.get("port", 8080),
+        "auth_token": os.environ.get("NUCLEIAI_AUTH_TOKEN", "").strip() or server.get("auth_token", ""),
         # Auth
         "sessions_dir": auth.get("sessions_dir", "./sessions"),
         # Crawler

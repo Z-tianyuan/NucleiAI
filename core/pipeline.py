@@ -92,6 +92,7 @@ class BountyPipeline:
 
         all_confirmed = []
         all_fp = []
+        all_review = []
 
         for line in live:
             parts = line.split()
@@ -104,20 +105,24 @@ class BountyPipeline:
             try:
                 raw = self.scan_target(url, headers=headers)
                 if raw:
-                    confirmed, fp = await filter_results(raw, self.ollama_host, self.model)
+                    confirmed, fp, review = await filter_results(raw)
                     all_confirmed.extend(confirmed)
                     all_fp.extend(fp)
+                    all_review.extend(review)
                     self.results["scan_results"][url] = {
                         "total": len(raw),
                         "confirmed": len(confirmed),
                         "fp": len(fp),
+                        "review": len(review),
                     }
             except Exception as e:
                 print(f"[!] Error scanning {url}: {e}")
 
         self.results["confirmed_vulns"] = all_confirmed
         self.results["false_positives"] = all_fp
-        print(f"\n[+] Pipeline complete: {len(all_confirmed)} confirmed, {len(all_fp)} false positives")
+        self.results["needs_review"] = all_review
+        print(f"\n[+] Pipeline complete: {len(all_confirmed)} confirmed, "
+              f"{len(all_fp)} false positives, {len(all_review)} needs review")
         return self.results
 
     def print_summary(self):
@@ -131,8 +136,10 @@ class BountyPipeline:
 
         confirmed = self.results["confirmed_vulns"]
         fp = self.results["false_positives"]
+        review = self.results.get("needs_review", [])
         print(f"  Confirmed vulns:   {len(confirmed)}")
         print(f"  False positives:   {len(fp)}")
+        print(f"  Needs review:      {len(review)}")
 
         if confirmed:
             print(f"\n  --- Confirmed Findings ---")

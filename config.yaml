@@ -1,18 +1,18 @@
 # NucleiAI Configuration
 # ======================
-# Auto-detection: leave binary paths empty and the system will try to find them.
-# Proxy: leave empty ("") to disable proxy.
+# 优先级：config.local.yaml（gitignore）> config.yaml > 环境变量
+# 机器相关路径请写入 config.local.yaml 或环境变量，保持本文件可移植。
 
 # ---------------------------------------------------------------------------
 # Paths to external binaries and templates
 # ---------------------------------------------------------------------------
 paths:
-  # nucleus binary — auto-detect from PATH or common locations if empty
-  nuclei_binary: "C:/Users/14940/bin/nuclei.exe"
-  # httpx binary — auto-detect from PATH or common locations if empty
-  httpx_binary: "C:/Users/14940/bin/httpx.exe"
-  # nuclei-templates — community templates directory (optional, leave empty to use only bundled templates)
-  templates_dir: "C:/Users/14940/nuclei-templates"
+  # 留空则自动探测：项目目录 > PATH > ~/bin。也可用环境变量 NUCLEIAI_NUCLEI_BIN
+  nuclei_binary: ""
+  # 留空则自动探测，同上。环境变量 NUCLEIAI_HTTPX_BIN
+  httpx_binary: ""
+  # 社区模板目录（可选，留空仅用内置模板）。环境变量 NUCLEIAI_TEMPLATES_DIR
+  templates_dir: ""
 
 # ---------------------------------------------------------------------------
 # Network settings
@@ -24,7 +24,7 @@ network:
   timeout: 300
 
 # ---------------------------------------------------------------------------
-# Ollama (local LLM for AI filtering and report generation)
+# Ollama (local LLM)
 # ---------------------------------------------------------------------------
 ollama:
   host: "http://localhost:11434"
@@ -32,11 +32,28 @@ ollama:
   timeout: 300
 
 # ---------------------------------------------------------------------------
+# Unified LLM — AI 过滤与报告生成的后端
+# provider: "auto" | "ollama" | "openai"
+#   auto = 配置了 base_url + API Key 则用 openai，否则退回 ollama
+# OpenAI 兼容端点示例：DeepSeek https://api.deepseek.com/v1 | 火山方舟 https://ark.cn-beijing.volces.com/api/v3
+# API Key 建议用环境变量 NUCLEIAI_LLM_API_KEY，不要写进文件
+# ---------------------------------------------------------------------------
+llm:
+  provider: "auto"
+  base_url: ""
+  model: "deepseek-chat"
+  api_key_env: "NUCLEIAI_LLM_API_KEY"
+  temperature: 0.2
+  timeout: 120
+
+# ---------------------------------------------------------------------------
 # Web server
 # ---------------------------------------------------------------------------
 server:
   host: "127.0.0.1"
   port: 8080
+  # 面板访问令牌：留空则无需鉴权；推荐设置，或用环境变量 NUCLEIAI_AUTH_TOKEN
+  auth_token: ""
 
 # ---------------------------------------------------------------------------
 # Authentication / Session defaults

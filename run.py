@@ -45,24 +45,32 @@ def cmd_check():
         print(f"  templates (community): not configured — using bundled templates only")
     print(f"  templates (custom)   : {custom_dir} ({len(list(custom_dir.glob('*.yaml')))} files)")
 
-    # Ollama check
-    import httpx
-    try:
-        resp = httpx.get(f"{cfg['ollama_host']}/api/tags", timeout=10)
-        if resp.status_code == 200:
-            models = [m["name"] for m in resp.json().get("models", [])]
-            print(f"\n  Ollama: connected ({cfg['ollama_host']})")
-            print(f"  Models: {', '.join(models[:8])}{'...' if len(models) > 8 else ''}")
-            if cfg["ollama_model"] in models:
-                print(f"  '{cfg['ollama_model']}' available ✓")
+    # LLM backend check (Ollama 或 OpenAI 兼容 API)
+    from core.llm import resolve_llm
+    llm = resolve_llm()
+    if llm["kind"] == "openai":
+        key = llm["api_key"]
+        masked = (key[:4] + "****") if len(key) >= 4 else "(未设置)"
+        print(f"\n  LLM backend: OpenAI 兼容 API ({llm['base_url']})")
+        print(f"  Model: {llm['model']} | API Key: {masked}")
+    else:
+        import httpx
+        try:
+            resp = httpx.get(f"{llm['host']}/api/tags", timeout=10)
+            if resp.status_code == 200:
+                models = [m["name"] for m in resp.json().get("models", [])]
+                print(f"\n  LLM backend: Ollama ({llm['host']})")
+                print(f"  Models: {', '.join(models[:8])}{'...' if len(models) > 8 else ''}")
+                if llm["model"] in models:
+                    print(f"  '{llm['model']}' available ✓")
+                else:
+                    print(f"  '{llm['model']}' NOT found — run: ollama pull {llm['model']}")
             else:
-                print(f"  '{cfg['ollama_model']}' NOT found — run: ollama pull {cfg['ollama_model']}")
-        else:
-            print(f"\n  Ollama: {cfg['ollama_host']} returned {resp.status_code}")
-    except Exception:
-        print(f"\n  Ollama: NOT reachable at {cfg['ollama_host']}")
-        print("  Start with: ollama serve")
-        print("  Pull model: ollama pull qwen3:8b")
+                print(f"\n  Ollama: {llm['host']} returned {resp.status_code}")
+        except Exception:
+            print(f"\n  Ollama: NOT reachable at {llm['host']}")
+            print("  Start with: ollama serve")
+            print("  Pull model: ollama pull qwen3:8b")
 
     # Proxy
     proxy = cfg.get("proxy", "")
@@ -103,11 +111,13 @@ def cmd_scan(target: str):
     import asyncio
     from core.ai_filter import filter_results
 
-    confirmed, fps = asyncio.run(filter_results(results))
+    confirmed, fps, review = asyncio.run(filter_results(results))
 
     print(f"\n  Total findings : {len(results)}")
     print(f"  Confirmed      : {len(confirmed)}")
     print(f"  False positives: {len(fps)}")
+    if review:
+        print(f"  Needs review   : {len(review)}  (LLM 未能判定，请人工复核)")
     print()
 
     for r in confirmed:

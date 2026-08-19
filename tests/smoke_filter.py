@@ -1,4 +1,7 @@
-"""Quick test: load scan results and run AI filter on them."""
+"""Smoke test: load scan results and run AI filter on them (needs Ollama/LLM + demo_scan.jsonl).
+
+注意：这是一个独立冒烟脚本，不是 pytest 用例。
+"""
 
 import json
 import asyncio
@@ -22,7 +25,7 @@ async def main():
 
     print(f"Loaded {len(results)} scan results\n")
 
-    confirmed, fps = await filter_results(results)
+    confirmed, fps, review = await filter_results(results)
 
     print(f"=== False Positives ({len(fps)}) ===")
     for r in fps:
@@ -39,6 +42,15 @@ async def main():
         print(f"  [{verdict.get('finding_type', '?')}] {name}")
         print(f"  Reason: {verdict.get('reason', 'N/A')} (confidence: {verdict.get('confidence', 0):.0%})")
         print()
+
+    if review:
+        print(f"\n=== Needs Review ({len(review)}) ===")
+        for r in review:
+            name = r.get("info", {}).get("name", "Unknown")
+            verdict = r.get("ai_verdict", {})
+            print(f"  [{verdict.get('finding_type', '?')}] {name}")
+            print(f"  Reason: {verdict.get('reason', 'N/A')} (confidence: {verdict.get('confidence', 0):.0%})")
+            print()
 
 
 if __name__ == "__main__":

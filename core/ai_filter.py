@@ -1,7 +1,8 @@
 """LLM-powered false positive filter for nuclei scan results."""
 
 import json
-import httpx
+
+from core.llm import chat_text, extract_json, warmup as llm_warmup
 
 SYSTEM_PROMPT = """你是资深渗透测试工程师，负责审核自动化扫描器的每条发现。
 
@@ -86,23 +87,29 @@ URL路径: {(matched or 'N/A')[:200]}
 BATCH_SIZE = 5  # Balance speed and accuracy for 8B model
 
 
-async def filter_results(results: list[dict], ollama_host: str = "http://localhost:11434",
-                         model: str = "qwen3:8b", timeout: int = 300) -> tuple[list[dict], list[dict]]:
-    """Analyse scan results in small batches, returning (confirmed, false_positives)."""
+async def filter_results(results: list[dict], timeout: int = 300) -> tuple[list[dict], list[dict], list[dict]]:
+    """Analyse scan results in small batches.
+
+    Returns (confirmed, false_positives, needs_review):
+    - confirmed:      LLM (or hard rules) 判定为真实漏洞/信息
+    - false_positives: LLM (或硬规则) 判定为误报
+    - needs_review:   LLM 分析失败、无法给出判定，必须人工复核
+    """
     if not results:
-        return [], []
+        return [], [], []
 
     # Warmup: ensure model is loaded before timed batches
-    await _warmup_ollama(ollama_host, model, timeout)
+    await llm_warmup()
 
     all_verdicts = []
     for batch_start in range(0, len(results), BATCH_SIZE):
         batch = results[batch_start:batch_start + BATCH_SIZE]
-        verdicts = await _process_batch(batch, ollama_host, model, timeout, batch_start)
+        verdicts = await _process_batch(batch, batch_start)
         all_verdicts.extend(verdicts)
 
     confirmed = []
     false_positives = []
+    needs_review = []
     for result, verdict in zip(results, all_verdicts):
         # Hard-rule 1: tech detections are never false positives
         if verdict.get("finding_type") == "tech" and verdict.get("is_false_positive"):
@@ -158,10 +165,12 @@ async def filter_results(results: list[dict], ollama_host: str = "http://localho
         result["ai_verdict"] = verdict
         if verdict.get("is_false_positive"):
             false_positives.append(result)
+        elif verdict.get("needs_review"):
+            needs_review.append(result)
         else:
             confirmed.append(result)
 
-    return confirmed, false_positives
+    return confirmed, false_positives, needs_review
 
 
 def _has_only_escaped_xss(body: str) -> bool:
@@ -214,57 +223,24 @@ def _is_git_text_mention(body: str) -> bool:
     return not has_file_links
 
 
-async def _warmup_ollama(host: str, model: str, timeout: int) -> None:
-    """Send a tiny request to ensure the model is loaded into GPU memory."""
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            await client.post(
-                f"{host}/api/chat",
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": "OK"}],
-                    "stream": False,
-                },
-            )
-    except Exception:
-        pass  # Warmup failure is non-fatal; real batches will still try
-
-
-async def _process_batch(batch: list[dict], ollama_host: str, model: str,
-                         timeout: int, offset: int) -> list[dict]:
+async def _process_batch(batch: list[dict], offset: int) -> list[dict]:
     """Process a single batch of up to BATCH_SIZE results."""
     items = "\n\n".join(_summarize_result(r, offset + i) for i, r in enumerate(batch))
     user_prompt = _build_batch_prompt(items, len(batch))
 
-    verdicts = await _call_ollama(ollama_host, model, timeout, user_prompt)
+    verdicts = await _call_ollama(user_prompt)
 
     while len(verdicts) < len(batch):
         verdicts.append({"finding_type": "unknown", "is_false_positive": False,
-                         "confidence": 0.0, "reason": "LLM分析失败"})
+                         "confidence": 0.0, "reason": "LLM分析失败，请人工复核",
+                         "needs_review": True})
     return verdicts[:len(batch)]
 
 
-async def _call_ollama(host: str, model: str, timeout: int, prompt: str) -> list[dict]:
-    """Make a single Ollama API call and parse JSON response."""
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(
-                f"{host}/api/chat",
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "stream": False,
-                },
-            )
-        if resp.status_code == 200:
-            content = resp.json()["message"]["content"]
-            start = content.find("[")
-            end = content.rfind("]") + 1
-            if start != -1 and end > start:
-                return json.loads(content[start:end])
-    except Exception:
-        pass
+async def _call_ollama(prompt: str) -> list[dict]:
+    """Call the active LLM backend and parse a JSON array of verdicts."""
+    content = await chat_text(SYSTEM_PROMPT, prompt)
+    data = extract_json(content)
+    if isinstance(data, list):
+        return data
     return []

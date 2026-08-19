@@ -1,8 +1,9 @@
 """Chinese pentest report generator — LLM summary + structured data."""
 
 import json
-import httpx
 from datetime import datetime
+
+from core.llm import chat_text, extract_json
 
 SUMMARY_PROMPT = """你是资深渗透测试专家。根据以下漏洞扫描结果，生成一份中文漏洞摘要。
 
@@ -42,35 +43,13 @@ def build_summary_input(results: list[dict]) -> str:
     return SUMMARY_PROMPT.format(results_json=json.dumps(simplified, ensure_ascii=False))
 
 
-async def generate_llm_summary(results: list[dict], ollama_host: str = "http://localhost:11434",
-                               model: str = "qwen3:8b") -> dict:
+async def generate_llm_summary(results: list[dict]) -> dict:
     """Call LLM to generate a Chinese summary of scan findings."""
     prompt = build_summary_input(results)
-
-    async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.post(
-            f"{ollama_host}/api/chat",
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": "你是资深渗透测试专家，只回复JSON格式。"},
-                    {"role": "user", "content": prompt},
-                ],
-                "stream": False,
-            },
-        )
-
-    if resp.status_code != 200:
-        return _fallback_summary(results)
-
-    content = resp.json()["message"]["content"]
-    try:
-        start = content.find("{")
-        end = content.rfind("}") + 1
-        if start != -1 and end > start:
-            return json.loads(content[start:end])
-    except (json.JSONDecodeError, KeyError):
-        pass
+    content = await chat_text("你是资深渗透测试专家，只回复JSON格式。", prompt)
+    data = extract_json(content)
+    if isinstance(data, dict):
+        return data
     return _fallback_summary(results)
 
 
@@ -124,14 +103,17 @@ def _row(r: dict) -> dict:
         "tags": ", ".join(info.get("tags", [])),
         "finding_type": verdict.get("finding_type", "?"),
         "is_false_positive": verdict.get("is_false_positive", False),
+        "needs_review": verdict.get("needs_review", False),
         "confidence": verdict.get("confidence", 0),
         "reason": verdict.get("reason", ""),
     }
 
 
 def generate_report_data(results: list[dict], confirmed: list[dict],
-                         false_positives: list[dict]) -> dict:
+                         false_positives: list[dict],
+                         needs_review: list[dict] | None = None) -> dict:
     """Generate structured report data for HTML rendering."""
+    needs_review = needs_review or []
     severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 
     sorted_confirmed = sorted(
@@ -152,8 +134,10 @@ def generate_report_data(results: list[dict], confirmed: list[dict],
             "total_findings": len(results),
             "confirmed": len(confirmed),
             "false_positives": len(false_positives),
+            "needs_review": len(needs_review),
         },
         "severity_counts": severity_counts,
         "findings": [_row(r) for r in sorted_confirmed],
         "false_positives": [_row(r) for r in false_positives],
+        "needs_review": [_row(r) for r in needs_review],
     }

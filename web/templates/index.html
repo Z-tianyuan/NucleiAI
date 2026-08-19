@@ -68,9 +68,10 @@
         .desc-cell { max-width: 280px; color: #94a3b8; font-size: 0.82rem; }
 
         .ai-badge { padding: 2px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
-        .ai-malicious { background: #166534; color: #86efac; }
-        .ai-fp { background: #991b1b; color: #fca5a5; }
-        .ai-tech { background: #1e40af; color: #93c5fd; }
+        .ai-malicious { background: #166534; color: #86efac; }                                     
+        .ai-fp { background: #991b1b; color: #fca5a5; }                                            
+        .ai-tech { background: #1e40af; color: #93c5fd; }                                          
+        .ai-review { background: #854d0e; color: #fde047; }                                        
         .ai-unknown { background: #334155; color: #cbd5e1; }
         .ai-reason { max-width: 200px; color: #94a3b8; font-size: 0.78rem; }
         .confidence-bar { width: 60px; height: 6px; background: #334155;
@@ -85,11 +86,13 @@
         .ai-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
                       padding: 0 18px 1rem; }
         .ai-summary-box { background: #0f172a; border-radius: 8px; padding: 0.8rem 1rem; }
-        .ai-summary-box.good { border-left: 3px solid #22c55e; }
-        .ai-summary-box.bad { border-left: 3px solid #ef4444; }
-        .ai-summary-box .num { font-size: 1.4rem; font-weight: 700; }
-        .ai-summary-box.good .num { color: #86efac; }
-        .ai-summary-box.bad .num { color: #fca5a5; }
+        .ai-summary-box.good { border-left: 3px solid #22c55e; }                            
+        .ai-summary-box.bad { border-left: 3px solid #ef4444; }                            
+        .ai-summary-box.warn { border-left: 3px solid #eab308; }                           
+        .ai-summary-box .num { font-size: 1.4rem; font-weight: 700; }                       
+        .ai-summary-box.good .num { color: #86efac; }                                       
+        .ai-summary-box.bad .num { color: #fca5a5; }                                        
+        .ai-summary-box.warn .num { color: #fde047; }                                       
         .ai-summary-box .sub { color: #94a3b8; font-size: 0.75rem; }
 
         footer { text-align: center; padding: 2rem; color: #475569; font-size: 0.85rem; }
@@ -329,6 +332,10 @@
                             <span style="color:#86efac;">真实 {{ hr.confirmed|length }}</span>
                             &nbsp;
                             <span style="color:#fca5a5;">误报 {{ hr.fp|length }}</span>
+                            {% if hr.review %}
+                            &nbsp;
+                            <span style="color:#fde047;">待复核 {{ hr.review|length }}</span>
+                            {% endif %}
                         </span>
                     </div>
                     {% if hr.error %}
@@ -429,6 +436,8 @@
                         <td>
                             {% if f.is_false_positive %}
                             <span class="ai-badge ai-fp">误报</span>
+                            {% elif f.needs_review %}
+                            <span class="ai-badge ai-review">待复核</span>
                             {% elif f.finding_type == 'tech' %}
                             <span class="ai-badge ai-tech">技术识别</span>
                             {% else %}
@@ -450,7 +459,7 @@
                 </tbody>
             </table>
 
-            {% if scan.ai_enabled and (scan.confirmed or scan.false_positives) %}
+            {% if scan.ai_enabled and (scan.confirmed or scan.false_positives or scan.needs_review) %}
             <div class="ai-summary">
                 <div class="ai-summary-box good">
                     <div class="num">{{ scan.confirmed|length }}</div>
@@ -459,6 +468,10 @@
                 <div class="ai-summary-box bad">
                     <div class="num">{{ scan.false_positives|length }}</div>
                     <div class="sub">AI判定为误报</div>
+                </div>
+                <div class="ai-summary-box warn">
+                    <div class="num">{{ scan.needs_review|length }}</div>
+                    <div class="sub">待人工复核（AI无法判定）</div>
                 </div>
             </div>
             {% endif %}
