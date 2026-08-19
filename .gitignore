@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 venv/
 .env
+.pytest_cache/
 sessions/
 config.local.yaml
 results/

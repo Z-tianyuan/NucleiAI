@@ -4,7 +4,6 @@ import asyncio
 import subprocess
 import os
 import sys
-import glob
 from pathlib import Path
 from datetime import datetime
 
@@ -17,7 +16,7 @@ app = FastAPI(title="NucleiAI", version="0.1.0")
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
-from core.config import get_config, check_binaries
+from core.config import get_config
 from core.ai_filter import filter_results
 from core.report_generator import generate_report_data, generate_llm_summary
 from core.scanner import collect_templates, run_scan
