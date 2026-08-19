@@ -1,9 +1,11 @@
 """Target fingerprinting — identify technologies and suggest templates."""
 
-import subprocess
 import json
-import shutil
+import subprocess
 from pathlib import Path
+
+from core.config import get_config
+from core.scanner import _is_localhost
 
 # Map technology keywords to nuclei template paths (relative to nuclei-templates dir)
 TECH_TEMPLATE_MAP = {
@@ -22,28 +24,21 @@ TECH_TEMPLATE_MAP = {
 }
 
 
-def _find_httpx() -> str:
-    """Find httpx binary in common locations."""
-    # Check PATH first
-    path = shutil.which("httpx")
-    if path:
-        return path
-    # Check same directory as nuclei
-    for loc in [Path.home() / "bin" / "httpx.exe",
-                Path("C:/Users/14940/bin/httpx.exe")]:
-        if loc.exists():
-            return str(loc)
-    return "httpx"
-
-
-def fingerprint_target(target: str, timeout: int = 60) -> dict:
+def fingerprint_target(target: str, timeout: int = 60,
+                      headers: dict[str, str] | None = None) -> dict:
     """Run httpx to fingerprint the target, return parsed info."""
-    httpx_bin = _find_httpx()
-    result = subprocess.run(
-        [httpx_bin, "-u", target, "-tech-detect", "-silent",
-         "-json", "-title", "-status-code", "-web-server", "-content-type"],
-        capture_output=True, text=True, timeout=timeout
-    )
+    cfg = get_config()
+    args = [
+        cfg["httpx_binary"], "-u", target, "-tech-detect", "-silent",
+        "-json", "-title", "-status-code", "-web-server", "-content-type",
+    ]
+    if cfg.get("proxy") and not _is_localhost(target):
+        args.extend(["-proxy", cfg["proxy"]])
+    if headers:
+        for key, value in headers.items():
+            args.extend(["-H", f"{key}: {value}"])
+
+    result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
 
     info = {
         "url": target,
@@ -69,35 +64,18 @@ def fingerprint_target(target: str, timeout: int = 60) -> dict:
     return info
 
 
-NUCLEI_TEMPLATES_DIR = None
-
-
-def _find_templates_dir() -> str | None:
-    """Find the nuclei-templates directory."""
-    candidates = [
-        Path.home() / "nuclei-templates",
-        Path.home() / ".nuclei-templates",
-        Path("C:/Users/14940/nuclei-templates"),
-    ]
-    for p in candidates:
-        if p.is_dir():
-            return str(p)
-    return None
-
-
 def suggest_templates(technologies: list[str]) -> list[str]:
     """Suggest nuclei template paths based on detected technologies.
 
     Returns full paths to template files/directories, ready for `nuclei -t`.
+    Only works if community templates are available.
     """
-    global NUCLEI_TEMPLATES_DIR
-    if NUCLEI_TEMPLATES_DIR is None:
-        NUCLEI_TEMPLATES_DIR = _find_templates_dir()
-
-    if not NUCLEI_TEMPLATES_DIR:
+    cfg = get_config()
+    templates_dir = cfg.get("templates_dir", "")
+    if not templates_dir:
         return []
 
-    base = Path(NUCLEI_TEMPLATES_DIR)
+    base = Path(templates_dir)
     templates = []
     for tech in technologies:
         tech_name = tech.split(":")[0].lower()

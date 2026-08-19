@@ -87,10 +87,13 @@ BATCH_SIZE = 5  # Balance speed and accuracy for 8B model
 
 
 async def filter_results(results: list[dict], ollama_host: str = "http://localhost:11434",
-                         model: str = "qwen3:8b", timeout: int = 180) -> tuple[list[dict], list[dict]]:
+                         model: str = "qwen3:8b", timeout: int = 300) -> tuple[list[dict], list[dict]]:
     """Analyse scan results in small batches, returning (confirmed, false_positives)."""
     if not results:
         return [], []
+
+    # Warmup: ensure model is loaded before timed batches
+    await _warmup_ollama(ollama_host, model, timeout)
 
     all_verdicts = []
     for batch_start in range(0, len(results), BATCH_SIZE):
@@ -115,14 +118,24 @@ async def filter_results(results: list[dict], ollama_host: str = "http://localho
                 verdict["confidence"] = 0.95
                 verdict["reason"] = "[自动修正] 响应中脚本标签已被HTML实体编码，不存在XSS执行点"
 
-        # Hard-rule 3: redirect to internal path, not to external URL -> safe
+        # Hard-rule 3: redirect target is internal (same domain) -> safe, not true open redirect
         if not verdict.get("is_false_positive"):
             resp = (result.get("response") or "")
             headers = resp.split("\r\n\r\n")[0] if "\r\n\r\n" in resp else ""
-            if _is_internal_redirect(headers):
+            # Extract target host from result
+            target_host = ""
+            for field in ["host", "matched-at", "url"]:
+                val = result.get(field, "")
+                if val:
+                    from urllib.parse import urlparse as _up
+                    parsed_url = _up(val if "://" in val else f"http://{val}")
+                    if parsed_url.hostname:
+                        target_host = parsed_url.hostname
+                        break
+            if _is_internal_redirect(headers, target_host):
                 verdict["is_false_positive"] = True
                 verdict["confidence"] = 0.95
-                verdict["reason"] = "[自动修正] 重定向目标为内部路径，非开放重定向"
+                verdict["reason"] = "[自动修正] 重定向目标为同一域名，非开放重定向"
 
         # Hard-rule 4: page says debug mode is OFF or info is redacted -> FP
         if not verdict.get("is_false_positive"):
@@ -160,15 +173,22 @@ def _has_only_escaped_xss(body: str) -> bool:
     return "&lt;script&gt;" in body.lower()
 
 
-def _is_internal_redirect(headers: str) -> bool:
-    """Check if redirect Location is an internal path, not external URL."""
+def _is_internal_redirect(headers: str, target_host: str = "") -> bool:
+    """Check if redirect Location stays within the same domain."""
     if not headers:
         return False
     for line in headers.split("\r\n"):
         if line.lower().startswith("location:"):
             target = line.split(":", 1)[1].strip()
+            # Case 1: relative path like /docs or /login
             if target.startswith("/"):
                 return True
+            # Case 2: absolute URL but same domain (keep params, just rewrite URL)
+            if target.startswith("http") and target_host:
+                from urllib.parse import urlparse
+                parsed = urlparse(target)
+                if parsed.hostname == target_host or parsed.hostname.endswith("." + target_host):
+                    return True
     return False
 
 
@@ -192,6 +212,22 @@ def _is_git_text_mention(body: str) -> bool:
                  "href=\"config\"", "href=\"HEAD\"", "href=\"logs/\"", "href=\"refs/\""]
     has_file_links = any(f in body for f in git_files)
     return not has_file_links
+
+
+async def _warmup_ollama(host: str, model: str, timeout: int) -> None:
+    """Send a tiny request to ensure the model is loaded into GPU memory."""
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            await client.post(
+                f"{host}/api/chat",
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": "OK"}],
+                    "stream": False,
+                },
+            )
+    except Exception:
+        pass  # Warmup failure is non-fatal; real batches will still try
 
 
 async def _process_batch(batch: list[dict], ollama_host: str, model: str,

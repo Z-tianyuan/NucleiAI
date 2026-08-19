@@ -1,24 +1,77 @@
 # NucleiAI Configuration
+# ======================
+# Auto-detection: leave binary paths empty and the system will try to find them.
+# Proxy: leave empty ("") to disable proxy.
 
-nuclei:
-  binary: nuclei
-  templates_dir: C:/Users/14940/AppData/Roaming/nuclei/nuclei-templates
+# ---------------------------------------------------------------------------
+# Paths to external binaries and templates
+# ---------------------------------------------------------------------------
+paths:
+  # nucleus binary — auto-detect from PATH or common locations if empty
+  nuclei_binary: "C:/Users/14940/bin/nuclei.exe"
+  # httpx binary — auto-detect from PATH or common locations if empty
+  httpx_binary: "C:/Users/14940/bin/httpx.exe"
+  # nuclei-templates — community templates directory (optional, leave empty to use only bundled templates)
+  templates_dir: "C:/Users/14940/nuclei-templates"
+
+# ---------------------------------------------------------------------------
+# Network settings
+# ---------------------------------------------------------------------------
+network:
+  # HTTP proxy for nuclei/httpx — leave empty to disable
+  proxy: ""
+  # Default timeout in seconds for external commands
   timeout: 300
-  concurrency: 10
 
+# ---------------------------------------------------------------------------
+# Ollama (local LLM for AI filtering and report generation)
+# ---------------------------------------------------------------------------
 ollama:
-  host: http://localhost:11434
-  model: qwen3:8b
-  timeout: 120
+  host: "http://localhost:11434"
+  model: "qwen3:8b"
+  timeout: 300
 
+# ---------------------------------------------------------------------------
+# Web server
+# ---------------------------------------------------------------------------
 server:
-  host: 127.0.0.1
+  host: "127.0.0.1"
   port: 8080
 
-scan:
-  output_dir: ./results
-  max_results_per_target: 1000
+# ---------------------------------------------------------------------------
+# Authentication / Session defaults
+# ---------------------------------------------------------------------------
+auth:
+  sessions_dir: "./sessions"
 
+# ---------------------------------------------------------------------------
+# Crawler defaults
+# ---------------------------------------------------------------------------
+crawler:
+  max_depth: 3
+  max_pages: 50
+  same_domain: true
+  respect_robots: true
+
+# ---------------------------------------------------------------------------
+# Scan defaults
+# ---------------------------------------------------------------------------
+scan:
+  output_dir: "./results"
+  concurrency: 10
+  rate_limit: 30
+  severity: "critical,high,medium"
+  timeout_per_target: 600
+  delay: 0
+  retries: 1
+  max_pipeline_hosts: 10
+  user_agents:
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    - "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0"
+
+# ---------------------------------------------------------------------------
+# Report
+# ---------------------------------------------------------------------------
 report:
-  template_dir: ./web/templates
-  output_dir: ./reports
+  output_dir: "./reports"

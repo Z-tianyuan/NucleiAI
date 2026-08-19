@@ -103,14 +103,93 @@
         </header>
 
         <div class="scan-box">
-            <h3>新建扫描任务</h3>
-            <form class="scan-form" method="post" action="/">
+            <h3>新建扫描任务 v2</h3>
+            <form class="scan-form" method="post" action="/" id="scan-form">
                 <input name="target" type="text"
                        placeholder="输入目标 URL，如 http://127.0.0.1:9999"
                        value="{{ last_target or '' }}" required>
-                <button type="submit">开始扫描</button>
+                <button type="submit" name="step" value="scan">开始扫描</button>
+                <button type="submit" name="step" value="crawl" style="background:#059669;">爬取</button>
             </form>
-            <p style="color:#64748b;font-size:0.78rem;margin-top:8px;">扫描 + AI 分析约 1 分钟，请耐心等待</p>
+
+            <details style="margin-top:12px;">
+                <summary style="color:#38bdf8;cursor:pointer;font-size:0.85rem;">高级选项</summary>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+                    <div>
+                        <label style="font-size:0.78rem;color:#94a3b8;">Cookie 字符串</label>
+                        <input form="scan-form" name="cookie" type="text"
+                               placeholder="session=abc123; token=xyz"
+                               style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid #475569;
+                                      background:#0f172a;color:#e2e8f0;font-size:0.85rem;">
+                    </div>
+                    <div>
+                        <label style="font-size:0.78rem;color:#94a3b8;">Bearer Token</label>
+                        <input form="scan-form" name="bearer" type="text"
+                               placeholder="eyJhbGciOi..."
+                               style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid #475569;
+                                      background:#0f172a;color:#e2e8f0;font-size:0.85rem;">
+                    </div>
+                    <div>
+                        <label style="font-size:0.78rem;color:#94a3b8;">爬取深度: <b id="depth-val">0</b></label>
+                        <input form="scan-form" name="crawl_depth" type="range" min="0" max="5" value="0"
+                               oninput="document.getElementById('depth-val').textContent=this.value"
+                               style="width:100%;">
+                    </div>
+                    <div>
+                        <label style="font-size:0.78rem;color:#94a3b8;">最大页数</label>
+                        <input form="scan-form" name="max_pages" type="number" min="1" max="200" value="50"
+                               style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid #475569;
+                                      background:#0f172a;color:#e2e8f0;font-size:0.85rem;">
+                    </div>
+                </div>
+                <div style="margin-top:10px;display:flex;align-items:center;gap:8px;">
+                    <input form="scan-form" name="use_community" type="checkbox" value="true"
+                           id="use-community"
+                           style="accent-color:#38bdf8;">
+                    <label for="use-community" style="font-size:0.85rem;color:#e2e8f0;cursor:pointer;">
+                        使用社区模板（Nuclei 官方 4000+ 模板，扫描约 3-5 分钟，适合外部真实网站）
+                    </label>
+                </div>
+                <div style="margin-top:10px;">
+                    <label style="font-size:0.78rem;color:#94a3b8;">自定义请求头</label>
+                    <div id="custom-headers">
+                        <div style="display:flex;gap:6px;margin-top:4px;">
+                            <input form="scan-form" name="hdr_key" type="text" placeholder="Header Name"
+                                   style="flex:1;padding:6px 10px;border-radius:6px;border:1px solid #475569;
+                                          background:#0f172a;color:#e2e8f0;font-size:0.85rem;">
+                            <input form="scan-form" name="hdr_val" type="text" placeholder="Value"
+                                   style="flex:1;padding:6px 10px;border-radius:6px;border:1px solid #475569;
+                                          background:#0f172a;color:#e2e8f0;font-size:0.85rem;">
+                        </div>
+                    </div>
+                </div>
+                {% if saved_sessions %}
+                <div style="margin-top:10px;">
+                    <label style="font-size:0.78rem;color:#94a3b8;">已保存的会话</label>
+                    <select form="scan-form" name="session_name"
+                            style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid #475569;
+                                   background:#0f172a;color:#e2e8f0;font-size:0.85rem;">
+                        <option value="">-- 不使用 --</option>
+                        {% for s_name in saved_sessions %}
+                        <option value="{{ s_name }}">{{ s_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+            </details>
+
+            <p style="color:#64748b;font-size:0.78rem;margin-top:8px;">扫描 + AI 分析约 1 分钟，请耐心等待 | 爬取深度设为 0 = 跳过爬取直接扫描</p>
+        </div>
+
+        <div class="scan-box">
+            <h3>Bug Bounty 一键管线</h3>
+            <form class="scan-form" method="post" action="/pipeline">
+                <input name="domain" type="text"
+                       placeholder="输入域名，如 example.com"
+                       required>
+                <button type="submit" style="background:#059669;">一键挖洞</button>
+            </form>
+            <p style="color:#64748b;font-size:0.78rem;margin-top:8px;">子域名发现 → 存活检测 → Nuclei 扫描 → AI 过滤 → 出报告</p>
         </div>
 
         <div class="legend">
@@ -131,6 +210,72 @@
                 <div class="legend-item"><span class="tag-chip">dsl</span> DSL 表达式 — 复杂条件组合匹配</div>
             </div>
         </div>
+
+        {% if crawl_result %}
+        <div class="result-card">
+            <div class="result-header">
+                <span class="target">爬取结果: {{ crawl_result.start_url }}</span>
+                <span class="meta">{{ crawl_result.pages_crawled }} 页, {{ crawl_result.urls|length }} URL</span>
+            </div>
+            <div style="padding:12px 18px;">
+                {% if crawl_result.urls %}
+                <form method="post" action="/scan-crawled">
+                    <input type="hidden" name="crawl_id" value="{{ crawl_result.id }}">
+                    <input type="hidden" name="cookie" value="{{ cookie or '' }}">
+                    <input type="hidden" name="bearer" value="{{ bearer or '' }}">
+                    <input type="hidden" name="session_name" value="{{ session_name or '' }}">
+                    <p style="font-size:0.8rem;color:#94a3b8;margin-bottom:8px;">
+                        选择要扫描的 URL（默认全选）:
+                        <a href="#" onclick="var cs=this.closest('form').querySelectorAll('input[type=checkbox]');cs.forEach(function(c){c.checked=true;});return false;"
+                           style="color:#38bdf8;margin-left:8px;">全选</a> /
+                        <a href="#" onclick="var cs=this.closest('form').querySelectorAll('input[type=checkbox]');cs.forEach(function(c){c.checked=false;});return false;"
+                           style="color:#38bdf8;">取消全选</a>
+                    </p>
+                    <div style="max-height:300px;overflow-y:auto;background:#0f172a;border-radius:8px;padding:10px;">
+                    {% for url in crawl_result.urls %}
+                    <label style="display:block;padding:4px 0;font-size:0.82rem;color:#cbd5e1;cursor:pointer;">
+                        <input type="checkbox" name="selected_urls" value="{{ url }}" checked
+                               style="margin-right:6px;">{{ url }}
+                    </label>
+                    {% endfor %}
+                    </div>
+                    {% if crawl_result.forms %}
+                    <p style="font-size:0.8rem;color:#94a3b8;margin-top:10px;margin-bottom:4px;">
+                        发现 {{ crawl_result.forms|length }} 个表单
+                    </p>
+                    <div style="font-size:0.78rem;color:#64748b;">
+                    {% for form in crawl_result.forms[:10] %}
+                        <span style="display:inline-block;padding:2px 8px;background:#1e293b;border-radius:6px;margin:2px;">
+                            {{ form.method }} {{ form.action[:50] }}
+                        </span>
+                    {% endfor %}
+                    {% if crawl_result.forms|length > 10 %}
+                        <span style="color:#64748b;">... 等 {{ crawl_result.forms|length }} 个</span>
+                    {% endif %}
+                    </div>
+                    {% endif %}
+                    <button type="submit" style="margin-top:12px;padding:10px 24px;border-radius:8px;
+                            border:none;background:#2563eb;color:#fff;font-size:0.9rem;font-weight:600;
+                            cursor:pointer;">扫描选中的 URL</button>
+                </form>
+                {% else %}
+                <div class="empty">未发现任何 URL</div>
+                {% endif %}
+                {% if crawl_result.errors %}
+                <details style="margin-top:10px;">
+                    <summary style="color:#eab308;font-size:0.78rem;cursor:pointer;">
+                        {{ crawl_result.errors|length }} 个爬取错误
+                    </summary>
+                    <div style="font-size:0.75rem;color:#94a3b8;max-height:100px;overflow-y:auto;">
+                    {% for err in crawl_result.errors %}
+                        <div>{{ err }}</div>
+                    {% endfor %}
+                    </div>
+                </details>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
 
         {% if history|length >= 2 %}
         <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;
@@ -161,6 +306,63 @@
         {% if history %}
         {% for scan in history %}
         <div class="result-card">
+            {% if scan.domain and scan.host_results is defined %}
+            <!-- ===== Pipeline Result ===== -->
+            <div class="result-header">
+                <span class="target">管线扫描: {{ scan.domain }}</span>
+                <span class="meta">{{ scan.time }}</span>
+            </div>
+            <div style="padding:12px 18px;">
+                {% if scan.error %}
+                <div class="error">{{ scan.error }}</div>
+                {% else %}
+                <p style="color:#94a3b8;font-size:0.85rem;">
+                    子域名 <b style="color:#38bdf8;">{{ scan.subdomains|length }}</b> 个，
+                    存活 <b style="color:#22c55e;">{{ scan.live_hosts|length }}</b> 个，
+                    已扫描 <b style="color:#eab308;">{{ scan.host_results|length }}</b> 个
+                </p>
+                {% for hr in scan.host_results %}
+                <div style="margin:10px 0;border:1px solid #334155;border-radius:8px;overflow:hidden;">
+                    <div style="background:#162032;padding:8px 14px;display:flex;justify-content:space-between;align-items:center;">
+                        <span style="color:#38bdf8;font-weight:600;font-size:0.9rem;">{{ hr.url }}</span>
+                        <span style="font-size:0.8rem;">
+                            <span style="color:#86efac;">真实 {{ hr.confirmed|length }}</span>
+                            &nbsp;
+                            <span style="color:#fca5a5;">误报 {{ hr.fp|length }}</span>
+                        </span>
+                    </div>
+                    {% if hr.error %}
+                    <div class="error" style="margin:0;border-radius:0;">{{ hr.error }}</div>
+                    {% elif hr.confirmed %}
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>漏洞名称</th>
+                                <th>严重度</th>
+                                <th>置信度</th>
+                                <th>AI理由</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for f in hr.confirmed %}
+                        <tr>
+                            <td style="font-size:0.85rem;">{{ f.name }}</td>
+                            <td><span class="sev sev-{{ f.severity }}">{{ f.severity }}</span></td>
+                            <td><span style="color:#86efac;">{{ (f.confidence * 100)|int }}%</span></td>
+                            <td class="ai-reason" style="font-size:0.8rem;">{{ f.reason }}</td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <div class="empty" style="padding:1rem 0;">未发现漏洞</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                {% endif %}
+            </div>
+            {% else %}
+            <!-- ===== Scan Result ===== -->
             <div class="result-header">
                 <span class="target">{{ scan.target }}</span>
                 <span class="meta">{{ scan.time }}
@@ -263,12 +465,13 @@
             {% else %}
             <div class="empty">未发现匹配项</div>
             {% endif %}
+            {% endif %}  <!-- end discovery-vs-scan if -->
         </div>
         {% endfor %}
         {% endif %}
 
         <footer>
-            <p>Built with FastAPI + Nuclei + Ollama &middot; D:\NucleiAI</p>
+            <p>Built with FastAPI + Nuclei + Ollama</p>
         </footer>
     </div>
 </body>

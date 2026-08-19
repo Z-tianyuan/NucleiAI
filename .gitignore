@@ -3,6 +3,8 @@ __pycache__/
 .venv/
 venv/
 .env
+sessions/
+config.local.yaml
 results/
 reports/
 *.log
