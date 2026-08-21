@@ -267,15 +267,21 @@ async def do_scan(request: Request, target: str = Form(...),
     # --- Crawl path ---
     if step == "crawl" or crawl_depth > 0:
         try:
-            cfg = get_config()
-            crawl_result = crawl(
-                target,
-                max_depth=crawl_depth if crawl_depth > 0 else cfg.get("crawler_max_depth", 3),
-                max_pages=max_pages,
-                same_domain=cfg.get("crawler_same_domain", True),
-                respect_robots=cfg.get("crawler_respect_robots", True),
-                headers=headers if headers else None,
-            )
+            import concurrent.futures
+            loop = asyncio.get_event_loop()
+
+            def _run_crawl():
+                cfg = get_config()
+                return crawl(
+                    target,
+                    max_depth=crawl_depth if crawl_depth > 0 else cfg.get("crawler_max_depth", 3),
+                    max_pages=max_pages,
+                    same_domain=cfg.get("crawler_same_domain", True),
+                    respect_robots=cfg.get("crawler_respect_robots", True),
+                    headers=headers if headers else None,
+                )
+
+            crawl_result = await loop.run_in_executor(None, _run_crawl)
             crawl_id = str(uuid.uuid4())[:8]
             CRAWL_CACHE[crawl_id] = crawl_result
             SCAN_HISTORY.insert(0, result)

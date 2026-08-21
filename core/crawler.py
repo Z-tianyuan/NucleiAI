@@ -1,6 +1,7 @@
 """BFS web crawler — discovers URLs and forms from HTML pages."""
 
 import time
+import urllib.request
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlparse, urldefrag
 from urllib.robotparser import RobotFileParser
@@ -38,16 +39,33 @@ def _same_domain(url1: str, url2: str) -> bool:
     return urlparse(url1).netloc.lower() == urlparse(url2).netloc.lower()
 
 
+# robots.txt 按主机缓存，避免每个页面都重新下载
+_robots_cache: dict[str, RobotFileParser] = {}
+
+
 def _is_allowed_by_robots(url: str, user_agent: str = "*") -> bool:
+    """Check robots.txt with per-host caching and a short timeout."""
     parsed = urlparse(url)
-    robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
-    try:
-        rp = RobotFileParser()
-        rp.set_url(robots_url)
-        rp.read()
-        return rp.can_fetch(user_agent, url)
-    except Exception:
+    if parsed.scheme not in ("http", "https"):
         return True
+    key = parsed.netloc.lower()
+
+    parser = _robots_cache.get(key)
+    if parser is None:
+        robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
+        try:
+            req = urllib.request.Request(robots_url, headers={"User-Agent": user_agent})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = resp.read().decode("utf-8", "replace")
+            parser = RobotFileParser()
+            parser.parse(data.splitlines())
+        except Exception:
+            # 拿不到 robots.txt 按允许处理，避免阻塞爬取
+            parser = RobotFileParser()
+            parser.parse([])
+        _robots_cache[key] = parser
+
+    return parser.can_fetch(user_agent, url)
 
 
 def _extract_links(html: str, base_url: str) -> list[str]:
@@ -117,7 +135,7 @@ def crawl(target_url: str,
         else:
             request_headers["User-Agent"] = "Mozilla/5.0 (compatible; NucleiAI-Crawler/1.0)"
 
-    with httpx.Client(timeout=30, follow_redirects=True,
+    with httpx.Client(timeout=httpx.Timeout(15.0, connect=8.0), follow_redirects=True,
                       headers=request_headers) as client:
         while queue and pages_crawled < max_pages:
             current_url, depth = queue.pop(0)
@@ -163,7 +181,7 @@ def crawl(target_url: str,
                         continue
                     queue.append((normalized, depth + 1))
 
-            time.sleep(0.1)
+            time.sleep(0.05)
 
     return CrawlResult(
         urls=sorted(discovered_urls),
