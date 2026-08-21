@@ -5,6 +5,7 @@ import os
 import random
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from core.config import get_config
@@ -116,12 +117,43 @@ def collect_templates(include_demo: bool = False,
 
 def run_scan(target: str, templates: list[str] | None = None,
              severity: str | None = None, timeout: int = 300,
-             headers: dict[str, str] | None = None) -> list[dict]:
-    """Run nuclei scan against a target, return parsed results."""
+             headers: dict[str, str] | None = None,
+             progress_cb=None) -> list[dict]:
+    """Run nuclei scan against a target, return parsed results.
+
+    progress_cb(found_count, elapsed_seconds) — 扫描期间每秒回调一次，
+    用于前端实时展示"已发现 N 条结果 / 已运行 Ns"。
+    """
     output_file = tempfile.mktemp(suffix=".jsonl")
     args = _build_nuclei_args(target, output_file, templates, severity, headers)
 
-    subprocess.run(args, timeout=timeout, capture_output=True)
+    proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    start = time.time()
+    timed_out = False
+    try:
+        while True:
+            try:
+                proc.wait(timeout=1.0)
+                break
+            except subprocess.TimeoutExpired:
+                pass
+            if progress_cb:
+                try:
+                    progress_cb(_count_jsonl_lines(output_file), int(time.time() - start))
+                except Exception:
+                    pass
+            if time.time() - start > timeout:
+                proc.kill()
+                proc.wait()
+                timed_out = True
+                break
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+
+    if timed_out:
+        raise subprocess.TimeoutExpired(args[0], timeout)
 
     results = []
     if os.path.exists(output_file):
@@ -136,6 +168,17 @@ def run_scan(target: str, templates: list[str] | None = None,
         os.unlink(output_file)
 
     return results
+
+
+def _count_jsonl_lines(path: str) -> int:
+    """快速统计输出文件里已写入的扫描结果条数。"""
+    if not os.path.exists(path):
+        return 0
+    try:
+        with open(path, encoding="utf-8") as f:
+            return sum(1 for _ in f)
+    except Exception:
+        return 0
 
 
 def get_template_list() -> list[str]:

@@ -188,7 +188,8 @@ def compare_scans(scan_a: dict, scan_b: dict) -> dict:
 
 def run_nuclei_scan(target: str, suggested_templates: list[str] | None = None,
                     include_demo: bool = False, include_community: bool = False,
-                    headers: dict[str, str] | None = None) -> tuple[list[dict], list[str]]:
+                    headers: dict[str, str] | None = None,
+                    progress_cb=None) -> tuple[list[dict], list[str]]:
     """Run nuclei against target, return (parsed raw results, templates used).
 
     委托给 core.scanner.run_scan，避免两份重复的参数构建逻辑。
@@ -200,7 +201,8 @@ def run_nuclei_scan(target: str, suggested_templates: list[str] | None = None,
     results = run_scan(target, templates=template_list,
                        severity=cfg.get("severity", "critical,high,medium"),
                        timeout=cfg.get("timeout_per_target", 600),
-                       headers=headers)
+                       headers=headers,
+                       progress_cb=progress_cb)
     return results, template_list
 
 
@@ -330,8 +332,18 @@ def _run_scan_task(task, target, headers, use_community):
                  message="Nuclei 扫描中，可能需要几分钟…")
     raw_results = []
     try:
+        def on_scan_progress(found, elapsed):
+            _update_task(
+                task,
+                stage="scanning",
+                progress=0.15 + 0.2 * min(found / 20.0, 1.0),
+                findings=found,
+                message=f"Nuclei 扫描中（已发现 {found} 条，运行 {elapsed}s）…",
+            )
+
         raw_results, _ = run_nuclei_scan(target, suggested, headers=headers,
-                                         include_community=use_community)
+                                         include_community=use_community,
+                                         progress_cb=on_scan_progress)
     except subprocess.TimeoutExpired:
         result["error"] = "扫描超时"
     except Exception as e:
@@ -401,15 +413,44 @@ def _run_scan_crawled_task(task, crawl_id, selected_urls, headers):
 
     total = len(selected_urls)
     for i, url in enumerate(selected_urls):
-        _update_task(task, stage="scanning", progress=i / max(total, 1),
-                     message=f"扫描 {i + 1}/{total}: {url}")
+        base = i / max(total, 1)
+        step = 1.0 / max(total, 1)
+        _update_task(task, stage="scanning", progress=base,
+                     message=f"扫描 {i + 1}/{total}: {url}（指纹识别）")
         hr = {"url": url, "findings": [], "confirmed": [], "fp": [], "review": [], "error": None}
         try:
             fingerprint = fingerprint_target(url, headers=headers)
             suggested = suggest_templates(fingerprint.get("technologies", []))
-            raw, _ = run_nuclei_scan(url, suggested_templates=suggested, headers=headers)
+            _update_task(task, progress=base + 0.15 * step,
+                         message=f"扫描 {i + 1}/{total}: {url}（Nuclei 扫描中）")
+
+            def on_scan_progress(found, elapsed):
+                _update_task(
+                    task,
+                    stage="scanning",
+                    progress=base + step * (0.15 + 0.4 * min(found / 20.0, 1.0)),
+                    findings=found,
+                    message=f"扫描 {i + 1}/{total}: {url}（已发现 {found} 条，运行 {elapsed}s）",
+                )
+
+            raw, _ = run_nuclei_scan(url, suggested_templates=suggested, headers=headers,
+                                     progress_cb=on_scan_progress)
             if raw:
-                confirmed, fp, review = asyncio.run(filter_results(raw))
+                _update_task(task, progress=base + 0.6 * step,
+                             message=f"扫描 {i + 1}/{total}: {url}（AI 分析 {len(raw)} 条）")
+
+                def on_ai_progress(done, total_count):
+                    _update_task(
+                        task,
+                        stage="ai_filtering",
+                        progress=base + step * (0.6 + 0.35 * (done / max(total_count, 1))),
+                        findings=done,
+                        message=f"AI 分析 {i + 1}/{total}: {done}/{total_count} 条…",
+                    )
+
+                confirmed, fp, review = asyncio.run(
+                    filter_results(raw, progress_cb=on_ai_progress)
+                )
                 hr["findings"] = [scan_result_to_row(r) for r in raw]
                 hr["confirmed"] = [scan_result_to_row(r) for r in confirmed]
                 hr["fp"] = [scan_result_to_row(r) for r in fp]
@@ -458,16 +499,44 @@ def _run_pipeline_task(task, domain, headers):
                 if not url.startswith("http"):
                     url = f"http://{url}"
 
-                _update_task(task, stage="scanning",
-                             progress=0.1 + 0.8 * (i / max(total, 1)),
-                             message=f"扫描 {i + 1}/{total}: {url}")
+                base = 0.1 + 0.8 * (i / max(total, 1))
+                step = 0.8 / max(total, 1)
+                _update_task(task, stage="scanning", progress=base,
+                             message=f"扫描 {i + 1}/{total}: {url}（指纹识别）")
                 host_result = {"url": url, "findings": [], "confirmed": [],
                                "fp": [], "review": [], "error": None}
                 try:
+                    _update_task(task, progress=base + 0.15 * step,
+                                 message=f"扫描 {i + 1}/{total}: {url}（Nuclei 扫描中）")
+
+                    def on_scan_progress(found, elapsed):
+                        _update_task(
+                            task,
+                            stage="scanning",
+                            progress=base + step * (0.15 + 0.4 * min(found / 20.0, 1.0)),
+                            findings=found,
+                            message=f"扫描 {i + 1}/{total}: {url}（已发现 {found} 条，运行 {elapsed}s）",
+                        )
+
                     raw_results, _ = run_nuclei_scan(url, None, include_demo=False,
-                                                     headers=headers if headers else None)
+                                                     headers=headers if headers else None,
+                                                     progress_cb=on_scan_progress)
                     if raw_results:
-                        confirmed, fp, review = asyncio.run(filter_results(raw_results))
+                        _update_task(task, progress=base + 0.6 * step,
+                                     message=f"扫描 {i + 1}/{total}: {url}（AI 分析 {len(raw_results)} 条）")
+
+                        def on_ai_progress(done, total_count):
+                            _update_task(
+                                task,
+                                stage="ai_filtering",
+                                progress=base + step * (0.6 + 0.35 * (done / max(total_count, 1))),
+                                findings=done,
+                                message=f"AI 分析 {i + 1}/{total}: {done}/{total_count} 条…",
+                            )
+
+                        confirmed, fp, review = asyncio.run(
+                            filter_results(raw_results, progress_cb=on_ai_progress)
+                        )
                         host_result["findings"] = [scan_result_to_row(r) for r in raw_results]
                         host_result["confirmed"] = [scan_result_to_row(r) for r in confirmed]
                         host_result["fp"] = [scan_result_to_row(r) for r in fp]
