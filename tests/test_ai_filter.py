@@ -99,3 +99,24 @@ def test_filter_results_hard_rule_escaped_xss_overrides(monkeypatch):
     assert len(fps) == 1
     assert "[自动修正]" in fps[0]["ai_verdict"]["reason"]
     assert review == []
+
+
+def test_filter_results_invokes_progress_cb(monkeypatch):
+    """每完成一批应回调 progress_cb(done_count, total_count)。"""
+
+    async def fake_chat_text(system, user):
+        return '[{"finding_type": "vuln", "is_false_positive": false, ' \
+               '"confidence": 0.8, "reason": "ok"}]'
+
+    async def fake_warmup():
+        return None
+
+    monkeypatch.setattr("core.ai_filter.chat_text", fake_chat_text)
+    monkeypatch.setattr("core.ai_filter.llm_warmup", fake_warmup)
+
+    calls = []
+    results = [_sample_result() for _ in range(3)]
+    asyncio.run(filter_results(results, progress_cb=lambda d, t: calls.append((d, t))))
+
+    assert calls, "progress_cb 应该至少被调用一次"
+    assert calls[-1] == (3, 3)

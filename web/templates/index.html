@@ -30,6 +30,14 @@
                  padding: 10px 14px; border-radius: 8px; margin-top: 1rem; }
         .ai-warning { background: #422006; border: 1px solid #eab308; color: #fde68a;
                       padding: 10px 14px; border-radius: 8px; margin-top: 1rem; }
+        .task-bar-track { height: 10px; background: #0f172a; border-radius: 5px;
+                          overflow: hidden; margin-top: 8px; }
+        .task-bar-fill { height: 100%; width: 0%;
+                         background: linear-gradient(90deg, #2563eb, #38bdf8);
+                         transition: width .4s ease; }
+        .task-meta { display: flex; justify-content: space-between;
+                     font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px; }
+        .task-detail { margin-top: 8px; font-size: 0.8rem; color: #94a3b8; }
 
         .result-card { background: #1e293b; border: 1px solid #334155;
                        border-radius: 12px; margin: 1rem 0; overflow: hidden; }
@@ -104,6 +112,69 @@
             <h1>NucleiAI</h1>
             <p>AI增强漏洞管理平台 — 智能扫描 · 误报过滤 · 中文报告</p>
         </header>
+
+        {% if running_task %}
+        <div class="result-card" id="task-card" style="border-color:#2563eb;">
+            <div class="result-header">
+                <span class="target" id="task-title">⏳ {{ running_task.message }}</span>
+                <span class="meta" id="task-elapsed">0s</span>
+            </div>
+            <div style="padding:16px 18px;">
+                <div class="task-meta">
+                    <span id="task-stage">{{ running_task.message }}</span>
+                    <span id="task-pct">0%</span>
+                </div>
+                <div class="task-bar-track">
+                    <div class="task-bar-fill" id="task-bar"></div>
+                </div>
+                <div class="task-detail" id="task-detail"></div>
+            </div>
+        </div>
+        <script>
+        (function () {
+            var taskId = {{ running_task.id | tojson }};
+            var started = Date.now();
+            var done = false;
+
+            function fmt(sec) {
+                if (sec < 60) return sec + 's';
+                return Math.floor(sec / 60) + 'm' + (sec % 60) + 's';
+            }
+            function tick() {
+                if (done) return;
+                fetch('/api/task/' + taskId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (t) {
+                        if (done) return;
+                        var pct = Math.round((t.progress || 0) * 100);
+                        document.getElementById('task-bar').style.width = pct + '%';
+                        document.getElementById('task-pct').textContent = pct + '%';
+                        document.getElementById('task-stage').textContent = t.message || '';
+                        document.getElementById('task-elapsed').textContent =
+                            fmt(Math.floor((Date.now() - started) / 1000));
+                        var detail = [];
+                        if (t.pages) detail.push('已爬取 ' + t.pages + ' 页');
+                        if (t.urls_found) detail.push('发现 ' + t.urls_found + ' 个 URL');
+                        if (t.findings) detail.push('发现 ' + t.findings + ' 条结果');
+                        document.getElementById('task-detail').textContent = detail.join(' · ');
+                        if (t.stage === 'done') {
+                            done = true;
+                            document.getElementById('task-title').textContent = '✅ ' + t.message;
+                            setTimeout(function () { window.location.href = t.redirect || '/'; }, 600);
+                        } else if (t.stage === 'error') {
+                            done = true;
+                            document.getElementById('task-title').textContent = '❌ 任务失败';
+                            document.getElementById('task-stage').textContent = t.error || t.message || '未知错误';
+                            document.getElementById('task-bar').style.background = '#dc2626';
+                        }
+                    })
+                    .catch(function () {});
+            }
+            tick();
+            setInterval(tick, 1000);
+        })();
+        </script>
+        {% endif %}
 
         <div class="scan-box">
             <h3>新建扫描任务 v2</h3>

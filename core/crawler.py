@@ -115,8 +115,12 @@ def crawl(target_url: str,
           max_pages: int = 50,
           same_domain: bool = True,
           respect_robots: bool = True,
-          headers: dict[str, str] | None = None) -> CrawlResult:
-    """BFS crawl starting from target_url."""
+          headers: dict[str, str] | None = None,
+          progress_cb=None) -> CrawlResult:
+    """BFS crawl starting from target_url.
+
+    progress_cb(pages_crawled, urls_found, current_url) — 每爬取一页回调一次。
+    """
     start_normalized = _normalize_url(target_url)
     visited: set[str] = set()
     discovered_urls: set[str] = set()
@@ -160,6 +164,12 @@ def crawl(target_url: str,
 
             pages_crawled += 1
             discovered_urls.add(current_url)
+
+            if progress_cb:
+                try:
+                    progress_cb(pages_crawled, len(discovered_urls), current_url)
+                except Exception:
+                    pass
 
             try:
                 discovered_forms.extend(_extract_forms(html, current_url))

@@ -4,6 +4,7 @@ import asyncio
 import subprocess
 import os
 import sys
+import threading
 from pathlib import Path
 from datetime import datetime
 
@@ -31,6 +32,8 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "tem
 
 SCAN_HISTORY = []
 CRAWL_CACHE: dict[str, CrawlResult] = {}
+SCAN_TASKS: dict[str, dict] = {}
+TASK_LOCK = threading.Lock()
 
 
 def _auth_token() -> str:
@@ -220,6 +223,268 @@ def scan_result_to_row(r: dict) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# 后台任务：爬取 / 扫描 / 管线 全部异步执行，前端轮询 /api/task/<id> 看进度
+# ---------------------------------------------------------------------------
+
+def _new_task(kind: str) -> dict:
+    task = {
+        "id": uuid.uuid4().hex[:12],
+        "kind": kind,
+        "stage": "queued",
+        "progress": 0.0,
+        "message": "任务已创建，等待执行…",
+        "pages": 0,
+        "urls_found": 0,
+        "findings": 0,
+        "error": None,
+        "redirect": "/",
+        "created": datetime.now().strftime("%H:%M:%S"),
+        "updated": datetime.now().strftime("%H:%M:%S"),
+    }
+    with TASK_LOCK:
+        SCAN_TASKS[task["id"]] = task
+        # 只保留最近 100 个任务，防止字典无限增长
+        if len(SCAN_TASKS) > 100:
+            for k in list(SCAN_TASKS)[:-100]:
+                SCAN_TASKS.pop(k, None)
+    return task
+
+
+def _update_task(task: dict, **kw) -> None:
+    kw["updated"] = datetime.now().strftime("%H:%M:%S")
+    with TASK_LOCK:
+        task.update(kw)
+
+
+def _start_task(kind: str, fn, args=(), **task_fields) -> dict:
+    task = _new_task(kind)
+    _update_task(task, **task_fields)
+    threading.Thread(target=fn, args=(task, *args), daemon=True).start()
+    return task
+
+
+def _run_crawl_task(task, target, crawl_depth, max_pages, headers):
+    cfg = get_config()
+
+    def on_progress(pages, urls_found, current_url):
+        _update_task(
+            task,
+            stage="crawling",
+            progress=min(pages / max(max_pages, 1), 0.95),
+            pages=pages,
+            urls_found=urls_found,
+            message=f"正在爬取: {current_url}",
+        )
+
+    crawl_result = crawl(
+        target,
+        max_depth=crawl_depth if crawl_depth > 0 else cfg.get("crawler_max_depth", 3),
+        max_pages=max_pages,
+        same_domain=cfg.get("crawler_same_domain", True),
+        respect_robots=cfg.get("crawler_respect_robots", True),
+        headers=headers if headers else None,
+        progress_cb=on_progress,
+    )
+
+    crawl_id = str(uuid.uuid4())[:8]
+    CRAWL_CACHE[crawl_id] = crawl_result
+    view = {
+        "id": crawl_id,
+        "start_url": target,
+        "urls": crawl_result.urls,
+        "forms": crawl_result.forms,
+        "pages_crawled": crawl_result.pages_crawled,
+        "errors": crawl_result.errors,
+    }
+    result = _create_result(target=target)
+    with TASK_LOCK:
+        SCAN_HISTORY.insert(0, result)
+    _update_task(
+        task,
+        stage="done",
+        progress=1.0,
+        pages=crawl_result.pages_crawled,
+        urls_found=len(crawl_result.urls),
+        message=f"爬取完成：{crawl_result.pages_crawled} 页 / {len(crawl_result.urls)} 个 URL",
+        crawl_id=crawl_id,
+        crawl_view=view,
+        redirect=f"/crawl/{task['id']}",
+    )
+
+
+def _run_scan_task(task, target, headers, use_community):
+    result = _create_result(target=target)
+    _update_task(task, stage="scanning", progress=0.05, message="正在指纹识别…")
+    suggested = []
+    fp = None
+    try:
+        fp = fingerprint_target(target, headers=headers)
+        technologies = fp.get("technologies", [])
+        if technologies:
+            suggested = suggest_templates(technologies)
+    except Exception:
+        pass
+
+    _update_task(task, stage="scanning", progress=0.15,
+                 message="Nuclei 扫描中，可能需要几分钟…")
+    raw_results = []
+    try:
+        raw_results, _ = run_nuclei_scan(target, suggested, headers=headers,
+                                         include_community=use_community)
+    except subprocess.TimeoutExpired:
+        result["error"] = "扫描超时"
+    except Exception as e:
+        result["error"] = str(e)
+
+    _update_task(task, stage="scanning", progress=0.35, findings=len(raw_results),
+                 message=f"Nuclei 扫描完成，{len(raw_results)} 条原始结果")
+
+    if fp:
+        result["fingerprint"] = fp
+        result["smart_templates"] = suggested
+
+    if raw_results and not result.get("error"):
+        try:
+            total = len(raw_results)
+
+            def on_ai_progress(done, total_count):
+                _update_task(
+                    task,
+                    stage="ai_filtering",
+                    progress=0.35 + 0.6 * (done / max(total_count, 1)),
+                    findings=done,
+                    message=f"AI 分析中 {done}/{total_count} 条…",
+                )
+
+            confirmed, false_positives, needs_review = asyncio.run(
+                filter_results(raw_results, progress_cb=on_ai_progress)
+            )
+            result["confirmed"] = [scan_result_to_row(r) for r in confirmed]
+            result["false_positives"] = [scan_result_to_row(r) for r in false_positives]
+            result["needs_review"] = [scan_result_to_row(r) for r in needs_review]
+        except Exception as e:
+            result["ai_enabled"] = False
+            result["ai_error"] = f"AI 过滤不可用: {e}"
+
+        result["findings"] = [scan_result_to_row(r) for r in raw_results]
+        result["_raw_results"] = raw_results
+
+    result["count"] = len(raw_results)
+    with TASK_LOCK:
+        SCAN_HISTORY.insert(0, result)
+    _update_task(
+        task,
+        stage="done",
+        progress=1.0,
+        findings=len(raw_results),
+        message=(
+            f"扫描完成：确认 {len(result.get('confirmed', []))} / "
+            f"误报 {len(result.get('false_positives', []))} / "
+            f"待复核 {len(result.get('needs_review', []))}"
+        ),
+        redirect="/",
+    )
+
+
+def _run_scan_crawled_task(task, crawl_id, selected_urls, headers):
+    crawl_result = CRAWL_CACHE.pop(crawl_id, None)
+    if not crawl_result:
+        _update_task(task, stage="error", progress=1.0,
+                     error="爬取结果已过期，请重新爬取", message="爬取结果已过期")
+        return
+
+    pipeline_result = _create_result(domain=crawl_result.start_url)
+    pipeline_result["subdomains"] = []
+    pipeline_result["live_hosts"] = selected_urls
+    pipeline_result["host_results"] = []
+
+    total = len(selected_urls)
+    for i, url in enumerate(selected_urls):
+        _update_task(task, stage="scanning", progress=i / max(total, 1),
+                     message=f"扫描 {i + 1}/{total}: {url}")
+        hr = {"url": url, "findings": [], "confirmed": [], "fp": [], "review": [], "error": None}
+        try:
+            fingerprint = fingerprint_target(url, headers=headers)
+            suggested = suggest_templates(fingerprint.get("technologies", []))
+            raw, _ = run_nuclei_scan(url, suggested_templates=suggested, headers=headers)
+            if raw:
+                confirmed, fp, review = asyncio.run(filter_results(raw))
+                hr["findings"] = [scan_result_to_row(r) for r in raw]
+                hr["confirmed"] = [scan_result_to_row(r) for r in confirmed]
+                hr["fp"] = [scan_result_to_row(r) for r in fp]
+                hr["review"] = [scan_result_to_row(r) for r in review]
+        except subprocess.TimeoutExpired:
+            hr["error"] = "扫描超时"
+        except Exception as e:
+            hr["error"] = str(e)
+        pipeline_result["host_results"].append(hr)
+
+    with TASK_LOCK:
+        SCAN_HISTORY.insert(0, pipeline_result)
+    _update_task(task, stage="done", progress=1.0,
+                 message=f"完成：共扫描 {total} 个 URL", redirect="/")
+
+
+def _run_pipeline_task(task, domain, headers):
+    result = _create_result(domain=domain)
+    result["subdomains"] = []
+    result["live_hosts"] = []
+    result["host_results"] = []
+
+    _update_task(task, stage="scanning", progress=0.02, message="正在枚举子域名…")
+    try:
+        subs = enumerate_subdomains(domain)
+        if not subs:
+            subs = enumerate_subdomains_fallback(domain)
+        result["subdomains"] = subs
+        if not subs:
+            result["error"] = "未发现子域名"
+        else:
+            _update_task(task, stage="scanning", progress=0.08,
+                         message=f"发现 {len(subs)} 个子域名，正在探测存活主机…")
+            live_lines = check_live_hosts(subs)
+            result["live_hosts"] = live_lines
+
+            cfg = get_config()
+            max_scan = cfg.get("max_pipeline_hosts", 10)
+            targets = live_lines[:max_scan]
+            total = len(targets)
+            for i, line in enumerate(targets):
+                parts = line.split()
+                if not parts:
+                    continue
+                url = parts[0].strip()
+                if not url.startswith("http"):
+                    url = f"http://{url}"
+
+                _update_task(task, stage="scanning",
+                             progress=0.1 + 0.8 * (i / max(total, 1)),
+                             message=f"扫描 {i + 1}/{total}: {url}")
+                host_result = {"url": url, "findings": [], "confirmed": [],
+                               "fp": [], "review": [], "error": None}
+                try:
+                    raw_results, _ = run_nuclei_scan(url, None, include_demo=False,
+                                                     headers=headers if headers else None)
+                    if raw_results:
+                        confirmed, fp, review = asyncio.run(filter_results(raw_results))
+                        host_result["findings"] = [scan_result_to_row(r) for r in raw_results]
+                        host_result["confirmed"] = [scan_result_to_row(r) for r in confirmed]
+                        host_result["fp"] = [scan_result_to_row(r) for r in fp]
+                        host_result["review"] = [scan_result_to_row(r) for r in review]
+                except subprocess.TimeoutExpired:
+                    host_result["error"] = "扫描超时"
+                except Exception as e:
+                    host_result["error"] = str(e)
+                result["host_results"].append(host_result)
+    except Exception as e:
+        result["error"] = str(e)
+
+    with TASK_LOCK:
+        SCAN_HISTORY.insert(0, result)
+    _update_task(task, stage="done", progress=1.0, message="管线扫描完成", redirect="/")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """Dashboard homepage."""
@@ -242,12 +507,12 @@ async def do_scan(request: Request, target: str = Form(...),
                   crawl_depth: int = Form(0),
                   max_pages: int = Form(50),
                   use_community: bool = Form(False)):
-    """Handle scan form submission: scan or crawl -> AI filter -> show results."""
-    result = _create_result(target=target)
-
+    """Handle scan form submission: 后台任务 + 前端轮询进度。"""
     if not target.startswith("http"):
+        result = _create_result(target=target)
         result["error"] = "URL must start with http:// or https://"
-        SCAN_HISTORY.insert(0, result)
+        with TASK_LOCK:
+            SCAN_HISTORY.insert(0, result)
         return templates.TemplateResponse("index.html", {
             "request": request,
             "title": "NucleiAI - AI增强漏洞管理平台",
@@ -256,7 +521,6 @@ async def do_scan(request: Request, target: str = Form(...),
             "last_target": target,
         })
 
-    # Build auth headers from form fields
     custom_headers = []
     if hdr_key.strip():
         custom_headers.append((hdr_key.strip(), hdr_val.strip()))
@@ -264,108 +528,63 @@ async def do_scan(request: Request, target: str = Form(...),
                                        custom_headers=custom_headers,
                                        session_name=session_name)
 
-    # --- Crawl path ---
     if step == "crawl" or crawl_depth > 0:
-        try:
-            import concurrent.futures
-            loop = asyncio.get_event_loop()
-
-            def _run_crawl():
-                cfg = get_config()
-                return crawl(
-                    target,
-                    max_depth=crawl_depth if crawl_depth > 0 else cfg.get("crawler_max_depth", 3),
-                    max_pages=max_pages,
-                    same_domain=cfg.get("crawler_same_domain", True),
-                    respect_robots=cfg.get("crawler_respect_robots", True),
-                    headers=headers if headers else None,
-                )
-
-            crawl_result = await loop.run_in_executor(None, _run_crawl)
-            crawl_id = str(uuid.uuid4())[:8]
-            CRAWL_CACHE[crawl_id] = crawl_result
-            SCAN_HISTORY.insert(0, result)
-            return templates.TemplateResponse("index.html", {
-                "request": request,
-                "title": "NucleiAI - 爬取结果",
-                "history": SCAN_HISTORY,
-                "crawl_result": {
-                    "id": crawl_id,
-                    "start_url": target,
-                    "urls": crawl_result.urls,
-                    "forms": crawl_result.forms,
-                    "pages_crawled": crawl_result.pages_crawled,
-                    "errors": crawl_result.errors,
-                },
-                "cookie": cookie,
-                "bearer": bearer,
-                "session_name": session_name,
-                "saved_sessions": list_sessions(),
-                "last_target": target,
-            })
-        except Exception as e:
-            result["error"] = f"爬取失败: {e}"
-            SCAN_HISTORY.insert(0, result)
-            return templates.TemplateResponse("index.html", {
-                "request": request,
-                "title": "NucleiAI - AI增强漏洞管理平台",
-                "history": SCAN_HISTORY,
-                "saved_sessions": list_sessions(),
-                "last_target": target,
-            })
-
-    # --- Direct scan path ---
-    try:
-        # Run blocking scan in thread pool to avoid blocking the event loop
-        import concurrent.futures
-        loop = asyncio.get_event_loop()
-
-        def _run_scan():
-            suggested = []
-            fp = None
-            try:
-                fp = fingerprint_target(target, headers=headers)
-                technologies = fp.get("technologies", [])
-                if technologies:
-                    suggested = suggest_templates(technologies)
-            except Exception:
-                pass
-            raw_results, tmpl_list = run_nuclei_scan(target, suggested, headers=headers,
-                                                           include_community=use_community)
-            return raw_results, suggested, fp
-
-        raw_results, suggested, fp = await loop.run_in_executor(None, _run_scan)
-        if fp:
-            result["fingerprint"] = fp
-            result["smart_templates"] = suggested
-
-        if raw_results:
-            try:
-                confirmed, false_positives, needs_review = await filter_results(raw_results)
-                result["confirmed"] = [scan_result_to_row(r) for r in confirmed]
-                result["false_positives"] = [scan_result_to_row(r) for r in false_positives]
-                result["needs_review"] = [scan_result_to_row(r) for r in needs_review]
-            except Exception as e:
-                result["ai_enabled"] = False
-                result["ai_error"] = f"AI 过滤不可用: {e}"
-
-            result["findings"] = [scan_result_to_row(r) for r in raw_results]
-            result["_raw_results"] = raw_results
-        result["count"] = len(raw_results)
-    except subprocess.TimeoutExpired:
-        result["error"] = "扫描超时"
-    except Exception as e:
-        result["error"] = str(e)
-
-    SCAN_HISTORY.insert(0, result)
+        task = _start_task("crawl", _run_crawl_task,
+                           args=(target, crawl_depth, max_pages, headers),
+                           message="正在启动爬取…")
+    else:
+        task = _start_task("scan", _run_scan_task,
+                           args=(target, headers, use_community),
+                           message="正在启动扫描…")
 
     return templates.TemplateResponse("index.html", {
         "request": request,
-        "title": "NucleiAI - AI增强漏洞管理平台",
+        "title": "NucleiAI - 任务进行中",
         "history": SCAN_HISTORY,
         "saved_sessions": list_sessions(),
         "last_target": target,
+        "running_task": task,
     })
+
+
+@app.get("/crawl/{task_id}", response_class=HTMLResponse)
+async def crawl_view(request: Request, task_id: str,
+                     cookie: str = "", bearer: str = "", session_name: str = ""):
+    """渲染爬取结果页（任务完成后由前端跳转到这里）。"""
+    task = SCAN_TASKS.get(task_id)
+    if not task or task.get("stage") != "done" or not task.get("crawl_view"):
+        return HTMLResponse("<h3>爬取任务不存在或尚未完成</h3>", status_code=404)
+    view = task["crawl_view"]
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "title": "NucleiAI - 爬取结果",
+        "history": SCAN_HISTORY,
+        "crawl_result": view,
+        "cookie": cookie,
+        "bearer": bearer,
+        "session_name": session_name,
+        "saved_sessions": list_sessions(),
+        "last_target": view["start_url"],
+    })
+
+
+@app.get("/api/task/{task_id}")
+async def task_status(task_id: str):
+    """任务进度 JSON，供前端轮询。"""
+    task = SCAN_TASKS.get(task_id)
+    if not task:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return {
+        "id": task["id"],
+        "stage": task["stage"],
+        "progress": task["progress"],
+        "message": task["message"],
+        "pages": task.get("pages", 0),
+        "urls_found": task.get("urls_found", 0),
+        "findings": task.get("findings", 0),
+        "error": task.get("error"),
+        "redirect": task.get("redirect", "/"),
+    }
 
 
 @app.post("/scan-crawled", response_class=HTMLResponse)
@@ -375,45 +594,18 @@ async def scan_crawled_urls(request: Request,
                              cookie: str = Form(""),
                              bearer: str = Form(""),
                              session_name: str = Form("")):
-    """Scan selected URLs from a crawl result."""
-    crawl_result = CRAWL_CACHE.pop(crawl_id, None)
-    if not crawl_result:
-        return HTMLResponse("<h3>爬取结果已过期，请重新爬取</h3>", status_code=400)
-
+    """Scan selected URLs from a crawl result（后台任务 + 进度）。"""
     headers = build_headers_from_form(cookie=cookie, bearer=bearer,
                                        session_name=session_name)
-
-    pipeline_result = _create_result(domain=crawl_result.start_url)
-    pipeline_result["subdomains"] = []
-    pipeline_result["live_hosts"] = selected_urls
-    pipeline_result["host_results"] = []
-
-    for url in selected_urls:
-        hr = {"url": url, "findings": [], "confirmed": [], "fp": [], "review": [], "error": None}
-        try:
-            fingerprint = fingerprint_target(url, headers=headers)
-            suggested = suggest_templates(fingerprint.get("technologies", []))
-            raw, _ = run_nuclei_scan(url, suggested_templates=suggested, headers=headers)
-            if raw:
-                confirmed, fp, review = await filter_results(raw)
-                hr["findings"] = [scan_result_to_row(r) for r in raw]
-                hr["confirmed"] = [scan_result_to_row(r) for r in confirmed]
-                hr["fp"] = [scan_result_to_row(r) for r in fp]
-                hr["review"] = [scan_result_to_row(r) for r in review]
-        except subprocess.TimeoutExpired:
-            hr["error"] = "扫描超时"
-        except Exception as e:
-            hr["error"] = str(e)
-        pipeline_result["host_results"].append(hr)
-
-    SCAN_HISTORY.insert(0, pipeline_result)
-
+    task = _start_task("scan_crawled", _run_scan_crawled_task,
+                       args=(crawl_id, selected_urls, headers),
+                       message=f"准备扫描 {len(selected_urls)} 个 URL…")
     return templates.TemplateResponse("index.html", {
         "request": request,
-        "title": "NucleiAI - 爬取+扫描结果",
+        "title": "NucleiAI - 任务进行中",
         "history": SCAN_HISTORY,
-        "pipeline": pipeline_result,
         "saved_sessions": list_sessions(),
+        "running_task": task,
     })
 
 
@@ -545,62 +737,17 @@ async def pipeline_scan(request: Request, domain: str = Form(...),
                         cookie: str = Form(""),
                         bearer: str = Form(""),
                         session_name: str = Form("")):
-    """Full automated pipeline: discover + scan + AI filter."""
-    result = _create_result(domain=domain)
-    result["subdomains"] = []
-    result["live_hosts"] = []
-    result["host_results"] = []
-
+    """Full automated pipeline（后台任务 + 进度）。"""
     headers = build_headers_from_form(cookie=cookie, bearer=bearer,
                                        session_name=session_name)
-
-    try:
-        subs = enumerate_subdomains(domain)
-        if not subs:
-            subs = enumerate_subdomains_fallback(domain)
-        result["subdomains"] = subs
-        if not subs:
-            result["error"] = "未发现子域名"
-        else:
-            live_lines = check_live_hosts(subs)
-            result["live_hosts"] = live_lines
-
-            cfg = get_config()
-            max_scan = cfg.get("max_pipeline_hosts", 10)
-            for line in live_lines[:max_scan]:
-                parts = line.split()
-                if not parts:
-                    continue
-                url = parts[0].strip()
-                if not url.startswith("http"):
-                    url = f"http://{url}"
-
-                host_result = {"url": url, "findings": [], "confirmed": [], "fp": [], "review": [], "error": None}
-                try:
-                    raw_results, _ = run_nuclei_scan(url, None, include_demo=False,
-                                                     headers=headers if headers else None)
-                    if raw_results:
-                        confirmed, fp, review = await filter_results(raw_results)
-                        host_result["findings"] = [scan_result_to_row(r) for r in raw_results]
-                        host_result["confirmed"] = [scan_result_to_row(r) for r in confirmed]
-                        host_result["fp"] = [scan_result_to_row(r) for r in fp]
-                        host_result["review"] = [scan_result_to_row(r) for r in review]
-                except subprocess.TimeoutExpired:
-                    host_result["error"] = "扫描超时"
-                except Exception as e:
-                    host_result["error"] = str(e)
-
-                result["host_results"].append(host_result)
-
-    except Exception as e:
-        result["error"] = str(e)
-
-    SCAN_HISTORY.insert(0, result)
-
+    task = _start_task("pipeline", _run_pipeline_task,
+                       args=(domain, headers),
+                       message="正在启动资产发现…")
     return templates.TemplateResponse("index.html", {
         "request": request,
-        "title": "NucleiAI - 管线扫描",
+        "title": "NucleiAI - 任务进行中",
         "history": SCAN_HISTORY,
-        "pipeline": result,
         "saved_sessions": list_sessions(),
+        "last_target": domain,
+        "running_task": task,
     })

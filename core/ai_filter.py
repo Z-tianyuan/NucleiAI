@@ -87,13 +87,16 @@ URL路径: {(matched or 'N/A')[:200]}
 BATCH_SIZE = 5  # Balance speed and accuracy for 8B model
 
 
-async def filter_results(results: list[dict], timeout: int = 300) -> tuple[list[dict], list[dict], list[dict]]:
+async def filter_results(results: list[dict], timeout: int = 300,
+                         progress_cb=None) -> tuple[list[dict], list[dict], list[dict]]:
     """Analyse scan results in small batches.
 
     Returns (confirmed, false_positives, needs_review):
     - confirmed:      LLM (or hard rules) 判定为真实漏洞/信息
     - false_positives: LLM (或硬规则) 判定为误报
     - needs_review:   LLM 分析失败、无法给出判定，必须人工复核
+
+    progress_cb(done_count, total_count) — 每完成一批回调一次。
     """
     if not results:
         return [], [], []
@@ -106,6 +109,11 @@ async def filter_results(results: list[dict], timeout: int = 300) -> tuple[list[
         batch = results[batch_start:batch_start + BATCH_SIZE]
         verdicts = await _process_batch(batch, batch_start)
         all_verdicts.extend(verdicts)
+        if progress_cb:
+            try:
+                progress_cb(min(batch_start + len(batch), len(results)), len(results))
+            except Exception:
+                pass
 
     confirmed = []
     false_positives = []
