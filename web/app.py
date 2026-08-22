@@ -557,7 +557,7 @@ def _run_pipeline_task(task, domain, headers):
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """Dashboard homepage."""
-    return templates.TemplateResponse("index.html", {
+    return templates.TemplateResponse(request, "index.html", {
         "request": request,
         "title": "NucleiAI - AI增强漏洞管理平台",
         "history": SCAN_HISTORY,
@@ -582,7 +582,7 @@ async def do_scan(request: Request, target: str = Form(...),
         result["error"] = "URL must start with http:// or https://"
         with TASK_LOCK:
             SCAN_HISTORY.insert(0, result)
-        return templates.TemplateResponse("index.html", {
+        return templates.TemplateResponse(request, "index.html", {
             "request": request,
             "title": "NucleiAI - AI增强漏洞管理平台",
             "history": SCAN_HISTORY,
@@ -606,7 +606,7 @@ async def do_scan(request: Request, target: str = Form(...),
                            args=(target, headers, use_community),
                            message="正在启动扫描…")
 
-    return templates.TemplateResponse("index.html", {
+    return templates.TemplateResponse(request, "index.html", {
         "request": request,
         "title": "NucleiAI - 任务进行中",
         "history": SCAN_HISTORY,
@@ -624,7 +624,7 @@ async def crawl_view(request: Request, task_id: str,
     if not task or task.get("stage") != "done" or not task.get("crawl_view"):
         return HTMLResponse("<h3>爬取任务不存在或尚未完成</h3>", status_code=404)
     view = task["crawl_view"]
-    return templates.TemplateResponse("index.html", {
+    return templates.TemplateResponse(request, "index.html", {
         "request": request,
         "title": "NucleiAI - 爬取结果",
         "history": SCAN_HISTORY,
@@ -669,7 +669,7 @@ async def scan_crawled_urls(request: Request,
     task = _start_task("scan_crawled", _run_scan_crawled_task,
                        args=(crawl_id, selected_urls, headers),
                        message=f"准备扫描 {len(selected_urls)} 个 URL…")
-    return templates.TemplateResponse("index.html", {
+    return templates.TemplateResponse(request, "index.html", {
         "request": request,
         "title": "NucleiAI - 任务进行中",
         "history": SCAN_HISTORY,
@@ -687,7 +687,7 @@ async def save_session_endpoint(request: Request,
     headers = build_headers_from_form(cookie=cookie, bearer=bearer)
     session = Session(name=session_name, headers=headers, cookie=cookie)
     save_session(session)
-    return templates.TemplateResponse("index.html", {
+    return templates.TemplateResponse(request, "index.html", {
         "request": request,
         "title": "NucleiAI - AI增强漏洞管理平台",
         "history": SCAN_HISTORY,
@@ -700,7 +700,7 @@ async def save_session_endpoint(request: Request,
 async def delete_session_endpoint(request: Request, session_name: str = Form(...)):
     """Delete a saved session."""
     delete_session(session_name)
-    return templates.TemplateResponse("index.html", {
+    return templates.TemplateResponse(request, "index.html", {
         "request": request,
         "title": "NucleiAI - AI增强漏洞管理平台",
         "history": SCAN_HISTORY,
@@ -725,7 +725,7 @@ async def compare_view(request: Request, i1: int = 0, i2: int = 1):
         return HTMLResponse("<h3>资产发现结果不支持对比</h3>", status_code=400)
 
     diff = compare_scans(scan_a, scan_b)
-    return templates.TemplateResponse("compare.html", {
+    return templates.TemplateResponse(request, "compare.html", {
         "request": request,
         "title": f"Scan Diff — {diff['scan_a_target']} vs {diff['scan_b_target']}",
         "diff": diff,
@@ -769,7 +769,7 @@ async def view_report(request: Request, index: int):
                        "top_issues": [], "summary": "AI摘要生成失败"}
         scan["_summary"] = summary
 
-    return templates.TemplateResponse("report.html", {
+    return templates.TemplateResponse(request, "report.html", {
         "request": request,
         "report": report_data,
         "summary": summary,
@@ -792,7 +792,7 @@ async def discover_assets(request: Request, domain: str = Form(...)):
 
     SCAN_HISTORY.insert(0, result)
 
-    return templates.TemplateResponse("index.html", {
+    return templates.TemplateResponse(request, "index.html", {
         "request": request,
         "title": "NucleiAI - 资产发现",
         "history": SCAN_HISTORY,
@@ -812,7 +812,7 @@ async def pipeline_scan(request: Request, domain: str = Form(...),
     task = _start_task("pipeline", _run_pipeline_task,
                        args=(domain, headers),
                        message="正在启动资产发现…")
-    return templates.TemplateResponse("index.html", {
+    return templates.TemplateResponse(request, "index.html", {
         "request": request,
         "title": "NucleiAI - 任务进行中",
         "history": SCAN_HISTORY,

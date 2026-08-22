@@ -4,6 +4,10 @@ __pycache__/
 venv/
 .env
 .pytest_cache/
+build/
+dist/
+.build-venv/
+*.spec
 sessions/
 config.local.yaml
 results/

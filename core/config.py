@@ -9,7 +9,25 @@ import yaml
 
 _CFG = None  # cached config dict
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+FROZEN = bool(getattr(sys, "frozen", False))
+
+# 资源目录（只读资产）：源码项目根，或 PyInstaller 解包目录
+BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+
+
+def _resolve_data_dir() -> Path:
+    """数据目录（可写）：打包版放在 exe 同目录的 data/，源码版就是项目根。"""
+    env = os.environ.get("NUCLEIAI_DATA_DIR", "").strip()
+    if env:
+        return Path(env)
+    if FROZEN:
+        return Path(sys.executable).resolve().parent / "data"
+    return BASE_DIR
+
+
+DATA_DIR = _resolve_data_dir()
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 CONFIG_PATH = BASE_DIR / "config.yaml"
 
 
@@ -19,6 +37,12 @@ def _resolve_binary(name: str, configured: str) -> str:
         return configured
 
     candidates = []
+
+    # 打包版：exe 同目录优先
+    if FROZEN:
+        exe_dir = Path(sys.executable).resolve().parent
+        candidates.append(str(exe_dir / f"{name}.exe"))
+        candidates.append(str(exe_dir / name))
 
     # Check same directory as the project first
     candidates.append(str(BASE_DIR / f"{name}.exe"))
@@ -47,10 +71,13 @@ def _resolve_templates_dir(configured: str) -> str:
         return configured
 
     candidates = [
+        DATA_DIR / "nuclei-templates",
         BASE_DIR / "nuclei-templates",
         Path.home() / "nuclei-templates",
         Path.home() / ".nuclei-templates",
     ]
+    if FROZEN:
+        candidates.append(Path(sys.executable).resolve().parent / "nuclei-templates")
     for p in candidates:
         if p.is_dir():
             return str(p)
@@ -77,10 +104,12 @@ def _load_config() -> dict:
         cfg = {}
 
     # Local overrides (gitignored, for keeping machine-specific paths out of the repo)
-    local_path = CONFIG_PATH.with_name("config.local.yaml")
-    if local_path.exists():
-        with open(local_path, encoding="utf-8") as f:
-            cfg = _deep_merge(cfg, yaml.safe_load(f) or {})
+    local_candidates = [CONFIG_PATH.with_name("config.local.yaml"), DATA_DIR / "config.local.yaml"]
+    for local_path in local_candidates:
+        if local_path.exists():
+            with open(local_path, encoding="utf-8") as f:
+                cfg = _deep_merge(cfg, yaml.safe_load(f) or {})
+            break
 
     # Flatten the structure
     paths = cfg.get("paths", {})

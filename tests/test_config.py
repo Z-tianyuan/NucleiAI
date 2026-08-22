@@ -21,6 +21,7 @@ def fresh_config(tmp_path, monkeypatch):
 
     import core.config as config
     config._CFG = None
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     yield config
     config._CFG = None
 
@@ -61,6 +62,8 @@ def test_check_binaries_reports_missing(fresh_config, tmp_path, monkeypatch):
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
     # 隔离 home 目录，避免探测到真实机器上的 ~/bin/nuclei.exe
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    # 屏蔽 PATH 查找，避免本机已安装 nuclei 导致测试不稳定
+    monkeypatch.setattr(config.shutil, "which", lambda name: None)
     missing = config.check_binaries()
     assert "nuclei" in missing
     assert "httpx" in missing

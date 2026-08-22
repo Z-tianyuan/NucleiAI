@@ -15,13 +15,12 @@ class Session:
 
 
 def _sessions_dir() -> Path:
-    from core.config import get_config
+    from core.config import DATA_DIR, get_config
     cfg = get_config()
     raw = cfg.get("sessions_dir", "./sessions")
     path = Path(raw)
     if not path.is_absolute():
-        base = Path(__file__).resolve().parent.parent
-        path = base / raw
+        path = DATA_DIR / raw
     return path
 
 
