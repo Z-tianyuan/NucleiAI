@@ -10,6 +10,18 @@
 
 > 定位：开源的安全工具开发演示项目 + 面试求职作品，展示 安全工具开发 + AI 应用 + 全栈 能力。
 
+## ⬇️ 下载 Windows 免安装包
+
+[![Download](https://img.shields.io/badge/Download-NucleiAI%20v1.1.0-blue.svg)](https://github.com/Z-tianyuan/NucleiAI/releases/latest/download/NucleiAI-windows-x64.zip)
+
+[NucleiAI-windows-x64.zip](https://github.com/Z-tianyuan/NucleiAI/releases/latest/download/NucleiAI-windows-x64.zip)（约 77 MB，无需安装 Python，解压即用）
+
+1. 双击 `NucleiAI-Target.exe` 启动本地漏洞靶场（127.0.0.1:9999）
+2. 双击 `NucleiAI.exe` 启动 Web 面板，浏览器自动打开
+3. 在扫描框输入 `http://127.0.0.1:9999` 即可测试
+
+AI 功能可选：设置环境变量 `NUCLEIAI_LLM_API_KEY` / `NUCLEIAI_LLM_BASE_URL`（DeepSeek 等云 API）即可启用；不配置也能扫描，AI 无法判定的结果会标记为「待人工复核」。
+
 ## ✨ 核心功能
 
 - **🔍 智能扫描** — Nuclei 引擎 + 20 个自编检测模板（5 技法演示 + 15 漏洞检测）+ 指纹智能选模，可选加载官方社区模板（8000+）
@@ -146,20 +158,14 @@ docker run -p 8080:8080 \
 
 ## 📦 打包分发给别人（免 Python 运行）
 
-Windows 用户可构建一个"双击即用"的免安装包（内含 PyInstaller 打包的 exe + nuclei/httpx 二进制）：
+最新分发包已在 [GitHub Releases](https://github.com/Z-tianyuan/NucleiAI/releases) 提供下载。如需自行重新打包（含 PyInstaller 打包的 exe + nuclei/httpx 二进制）：
 
 ```bash
 # 需要 Python 3.12/3.13 + PyInstaller（建议用独立 venv）
 python build_package.py
 ```
 
-产出 `dist/NucleiAI-windows-x64.zip`，解压后：
-
-1. 双击 `NucleiAI-Target.exe` 启动本地漏洞靶场
-2. 双击 `NucleiAI.exe` 自动打开 Web 面板
-3. 在扫描框输入 `http://127.0.0.1:9999` 即可测试
-
-AI 功能可选：设置 `NUCLEIAI_LLM_API_KEY` / `NUCLEIAI_LLM_BASE_URL`（DeepSeek 等云 API）即可，不配置也能扫描（AI 无法判定的结果标记为"待人工复核"）。可写数据（会话等）保存在 exe 同目录 `data/` 下。
+产出 `dist/NucleiAI-windows-x64.zip`。可写数据（会话等）保存在 exe 同目录 `data/` 下。
 
 ## 📟 命令
 
